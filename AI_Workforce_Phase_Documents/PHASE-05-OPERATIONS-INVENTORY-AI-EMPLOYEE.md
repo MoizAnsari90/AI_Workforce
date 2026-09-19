@@ -18,6 +18,8 @@ Phase 04.
 - Operational tasks
 - Basic demand signals
 - Approval workflow
+- E-commerce Operations Bundle: Shopify stock level syncing and direct Supplier Purchase Order (PO) creation via external API integrations
+- Strict HITL Gate: Any Purchase Order (PO) creation > $1000 or bulk stock alteration requires explicit admin approval before API execution
 
 ## Operations Loop
 Observe

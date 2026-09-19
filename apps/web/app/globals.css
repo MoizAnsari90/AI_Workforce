@@ -1,26 +1,67 @@
 @import "tailwindcss";
 
 @layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.5rem;
+  body {
+    background-color: #040914;
+    color: #f1f5f9;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   }
 }
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 30px rgba(6, 182, 212, 0.4), inset 0 0 15px rgba(6, 182, 212, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 60px rgba(6, 182, 212, 0.8), inset 0 0 25px rgba(6, 182, 212, 0.4);
+  }
+}
+
+@keyframes circle-path-1 {
+  0% { transform: rotate(0deg) translate(160px) rotate(0deg); }
+  100% { transform: rotate(360deg) translate(160px) rotate(-360deg); }
+}
+
+@keyframes circle-path-2 {
+  0% { transform: rotate(120deg) translate(160px) rotate(-120deg); }
+  100% { transform: rotate(480deg) translate(160px) rotate(-480deg); }
+}
+
+@keyframes circle-path-3 {
+  0% { transform: rotate(240deg) translate(160px) rotate(-240deg); }
+  100% { transform: rotate(600deg) translate(160px) rotate(-600deg); }
+}
+
+@keyframes circle-path-4 {
+  0% { transform: rotate(45deg) translate(230px) rotate(-45deg); }
+  100% { transform: rotate(405deg) translate(230px) rotate(-405deg); }
+}
+
+@keyframes circle-path-5 {
+  0% { transform: rotate(165deg) translate(230px) rotate(-165deg); }
+  100% { transform: rotate(525deg) translate(230px) rotate(-525deg); }
+}
+
+@keyframes circle-path-6 {
+  0% { transform: rotate(285deg) translate(230px) rotate(-285deg); }
+  100% { transform: rotate(645deg) translate(230px) rotate(-645deg); }
+}
+
+.glow-cyan {
+  box-shadow: 0 0 30px rgba(6, 182, 212, 0.35);
+}
+
+.glow-cyan-lg {
+  box-shadow: 0 0 70px rgba(6, 182, 212, 0.6);
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 4s infinite ease-in-out;
+}
+
+.orbit-1 { animation: circle-path-1 22s linear infinite; }
+.orbit-2 { animation: circle-path-2 22s linear infinite; }
+.orbit-3 { animation: circle-path-3 22s linear infinite; }
+.orbit-4 { animation: circle-path-4 28s linear infinite reverse; }
+.orbit-5 { animation: circle-path-5 28s linear infinite reverse; }
+.orbit-6 { animation: circle-path-6 28s linear infinite reverse; }

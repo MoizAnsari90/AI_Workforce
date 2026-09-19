@@ -11,9 +11,10 @@ Phase 07.
 - Tool registry
 - Tool permissions
 - Policy engine
+- Centralized Approval Policy Engine (managing HITL thresholds and rules)
 - Context boundaries
 - Approval gates
-- Verification/checkers
+- Verification/checkers (including API execution response verification checkers for Shopify, CRM, and QuickBooks/Xero API success confirmation)
 - Rate limits
 - Timeouts
 - Retry policies

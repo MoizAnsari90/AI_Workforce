@@ -148,6 +148,8 @@ model Tenant {
   autonomyHeartbeats AutonomyHeartbeat[]
   autonomyPolicies AutonomyPolicy[]
   tools            Tool[]
+  voiceSessions    VoiceSession[]
+  externalCredentials ExternalIntegrationCredential[]
 
   @@map("tenants")
 }
@@ -1342,4 +1344,63 @@ model FinancePolicy {
 
   @@unique([tenantId])
   @@map("finance_policies")
+}
+
+model WorkflowTemplate {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  category    String   // e.g. 'ecommerce', 'real_estate'
+  definition  Json     // pre-configured graph/workflow nodes and transitions
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("workflow_templates")
+}
+
+model AgentTemplate {
+  id           String   @id @default(uuid())
+  name         String   @unique
+  department   String   // e.g. 'support', 'sales', 'marketing', 'operations', 'finance'
+  description  String?
+  instructions String
+  defaultTools Json     @map("default_tools") // array of tool names/permissions
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("agent_templates")
+}
+
+model VoiceSession {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  provider    String   // 'VAPI' or 'RETELL'
+  callId      String   @unique @map("call_id")
+  status      String   @default("initiated") // initiated, active, completed, failed
+  transcript  Json?    // call transcript or messages
+  metadata    Json?    // additional metadata
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([callId])
+  @@map("voice_sessions")
+}
+
+model ExternalIntegrationCredential {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  provider        String   // 'shopify', 'quickbooks', 'crm', 'vapi', 'retell'
+  encryptedConfig Json     @map("encrypted_config") // encrypted API keys / tokens
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
+  @@map("external_integration_credentials")
 }

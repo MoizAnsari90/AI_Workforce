@@ -12,11 +12,12 @@ Phase 03.
 - Content calendar
 - Campaigns
 - Content drafts
-- Social publishing tools where integrations are available
+- Social publishing tools where integrations are available (Direct API execution for publishing)
 - Campaign analytics
 - Lead-generation attribution
 - Marketing tasks
 - Approval workflow
+- Strict Human-in-the-Loop (HITL) Approval Gate before any public post, ad campaign launch, or ad-spend modification
 
 ## Marketing Loop
 Discover

@@ -34,9 +34,10 @@ Represent workflows as nodes and transitions.
 
 Node examples:
 - Agent task
-- Tool action
+- Tool action / `ACTION_TOOL_EXECUTION` (Direct API calls: Shopify, CRM, QuickBooks)
 - Verification
-- Approval
+- Approval / `HITL_APPROVAL_GATE` (State transition: `PENDING_APPROVAL` → Human Decision → Resume/Abort)
+- Voice Call Session / `VOICE_CALL_SESSION` (Retell AI / Vapi integration nodes)
 - Wait/event
 - Human handoff
 

@@ -31,6 +31,7 @@ Every authenticated request must resolve:
 - tenant
 - role
 - permissions
+- tenant-scoped integration credentials and approval queues
 
 ## Suggested Core Entities
 Tenant
@@ -39,11 +40,15 @@ Role
 Permission
 Business
 Agent
+AgentTemplate
 AgentVersion
 Task
 Workflow
+WorkflowTemplate
 Tool
 ApprovalRequest
+VoiceSession
+ExternalIntegrationCredential
 AuditLog
 KnowledgeSource
 DocumentChunk

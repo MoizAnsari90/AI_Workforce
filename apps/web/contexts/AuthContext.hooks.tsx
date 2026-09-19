@@ -28,9 +28,24 @@ export function AuthProvider({ children, router, pathname }: { children: ReactNo
       try {
         const res = await fetch("/api/auth/me");
         if (res.ok) {
-          const data = await res.json();
-          setUser(data.data.user);
-          setTenant(data.data.tenant);
+          const json = await res.json();
+          // API /auth/me returns userContext directly in json.data:
+          // { userId, tenantId, email, role, permissions }
+          const raw = json.data;
+          const userObj = {
+            id: raw.userId || raw.id,
+            tenantId: raw.tenantId,
+            email: raw.email,
+            role: raw.role,
+            permissions: raw.permissions,
+          };
+          const tenantObj = {
+            id: raw.tenantId,
+            name: raw.tenantName || "Default Workspace",
+          };
+
+          setUser(userObj);
+          setTenant(tenantObj);
           setIsAuthenticated(true);
         } else {
           setIsAuthenticated(false);
@@ -61,10 +76,10 @@ export function AuthProvider({ children, router, pathname }: { children: ReactNo
         window.location.href = "/dashboard";
       } else {
         const err = await res.json().catch(() => ({}));
-        alert(err.error?.message || "Login failed. Please verify your credentials or register first.");
+        throw new Error(err.error?.message || "Login failed. Please check credentials.");
       }
     } catch (e: any) {
-      alert("Network error during login: " + (e.message || "Unknown error"));
+      throw e;
     }
   }
 

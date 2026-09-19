@@ -16,6 +16,8 @@ Phase 05.
 - Cash-flow summaries
 - Approval workflows
 - Finance audit logs
+- Direct QuickBooks / Xero API Integrations for posting invoices, recording expenses, and executing audit-logged reconciliations
+- Strict HITL Approval Gates for all external accounting ledger writes
 
 ## Initial Autonomy Boundary
 Allowed:

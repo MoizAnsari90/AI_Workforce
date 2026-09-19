@@ -12,7 +12,7 @@ Phase 01.
 - BullMQ asynchronous processing
 - FAQ matching
 - pgvector RAG
-- OpenAI response generation
+- LLM response generation
 - Conversation memory
 - AI active/inactive state
 - Human takeover
@@ -21,21 +21,25 @@ Phase 01.
 - Agent audit trail
 - Support agent configuration
 - Business tone/instructions
+- Direct Shopify Action Execution (Order Cancel, Order Refund via Shopify API)
+- Real-Time Voice/Call Agent Support (Inbound/Outbound Voice Calls via Retell AI / Vapi integrations)
+- Human-in-the-Loop (HITL) Approval Flow for high-value refunds or exception actions
 
 ## Message Flow
-WhatsApp
+WhatsApp / Voice Call (Retell AI / Vapi)
 → Webhook
 → Fast acknowledgement
 → BullMQ
 → Support Agent
-→ FAQ
-→ RAG if needed
+→ FAQ / RAG / Direct Action Tool (Shopify)
+→ Threshold Check (e.g., Refund amount ≤ $50 vs > $50)
+→ If risky/high-value: HITL Approval Queue → Human Decision → Resume/Abort
 → LLM
 → Policy/verification
-→ WhatsApp
+→ WhatsApp / Voice Response
 
 If AI is inactive:
-WhatsApp
+WhatsApp / Voice
 → Queue
 → Conversation
 → Human Inbox

@@ -12,16 +12,29 @@ import {
   pauseAI,
   resumeAI,
 } from '../controllers/webhookController';
+import { VoiceService } from '../services/voiceService';
 
 export const webhookRouter = Router();
 
 // ---------------------------------------------------------------------------
-// WhatsApp Webhook (public — Meta calls this directly)
-// GET  /api/v1/webhook/:tenantId/whatsapp  — challenge verification
-// POST /api/v1/webhook/:tenantId/whatsapp  — inbound messages
+// WhatsApp & Voice Webhooks (public — external services call these directly)
 // ---------------------------------------------------------------------------
 webhookRouter.get('/webhook/:tenantId/whatsapp', verifyWebhook);
 webhookRouter.post('/webhook/:tenantId/whatsapp', receiveWebhook);
+webhookRouter.post('/webhook/:tenantId/voice', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { tenantId } = req.params;
+    const body = Buffer.isBuffer(req.body)
+      ? JSON.parse(req.body.toString('utf8'))
+      : typeof req.body === 'string'
+      ? JSON.parse(req.body)
+      : req.body;
+    const result = await VoiceService.handleWebhook(tenantId, body);
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Conversation Management (authenticated, tenant-isolated)

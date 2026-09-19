@@ -19,6 +19,9 @@ Phase 02.
 - Sales agent memory
 - Sales policies
 - Human approval for sensitive actions
+- Direct CRM API Creation (HubSpot, Salesforce API integration)
+- Automated Voice Qualification Calls via Vapi / Retell AI for inbound leads
+- Vertical Niche Template: "Real Estate Lead Qualification & Appointment Booking" bundle (pre-configured workflows for property inquiry response, qualification, voice call scheduling, and CRM logging)
 
 ## Example Flow
 New Lead
