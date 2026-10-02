@@ -80,14 +80,18 @@ export class ApprovalService {
       throw new Error(`Approval request is already ${existing.status}`);
     }
 
-    const updated = await prisma.approvalRequest.update({
-      where: { id: params.approvalId },
+    const claimed = await prisma.approvalRequest.updateMany({
+      where: { id: params.approvalId, tenantId: params.tenantId, status: 'pending', updatedAt: existing.updatedAt },
       data: {
         status: params.status,
         reviewedByUserId: params.userId,
         rejectionReason: params.status === 'rejected' ? params.rejectionReason : null,
       },
     });
+
+    if (claimed.count !== 1) throw new Error('Approval request has already been reviewed');
+    const updated = await prisma.approvalRequest.findFirst({ where: { id: params.approvalId, tenantId: params.tenantId } });
+    if (!updated) throw new Error('Approval request no longer exists');
 
     await recordAuditLog({
       tenantId: params.tenantId,

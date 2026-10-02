@@ -4,6 +4,10 @@ import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
+import { shopifyRouter } from './routes/shopifyRoutes';
+import { shopifyOAuthRouter } from './routes/shopifyOAuthRoutes';
+import { whatsappOnboardingRouter } from './routes/whatsappOnboardingRoutes';
+import { woocommerceRouter } from './routes/woocommerceRoutes';
 import { authRouter } from './routes/authRoutes';
 import { tenantRouter } from './routes/tenantRoutes';
 import { webhookRouter } from './routes/webhookRoutes';
@@ -95,6 +99,10 @@ export function createApp() {
   app.use('/api/v1', globalLimiter);
 
   // Other Routes
+  app.use('/api/v1/shopify/oauth', shopifyOAuthRouter);
+  app.use('/api/v1/whatsapp/onboarding', whatsappOnboardingRouter);
+  app.use('/api/v1/woocommerce', woocommerceRouter);
+  app.use('/api/v1/tenants/:tenantId/shopify', shopifyRouter);
   app.use('/api/v1/auth', authRouter);
   app.use('/api/v1', tenantRouter);
   app.use('/api/v1', salesRouter);

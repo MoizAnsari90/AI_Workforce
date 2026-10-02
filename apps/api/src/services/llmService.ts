@@ -3,6 +3,7 @@ import { logger } from '../utils/logger';
 import { RetrievedChunk } from './ragService';
 import { FAQMatchResult } from './faqService';
 import { runSupportAgent } from './geminiService';
+import { ShopifyTool } from '../tools/shopifyTool';
 
 export interface GenerateResponseParams {
   tenantId: string;
@@ -16,7 +17,7 @@ export interface GenerateResponseParams {
 
 export interface SupportResponseResult {
   responseText: string;
-  source: 'faq' | 'rag' | 'llm' | 'fallback';
+  source: 'faq' | 'rag' | 'llm' | 'fallback' | 'shopify';
   confidence: number;
   shouldEscalate: boolean;
   escalationReason?: string;
@@ -34,6 +35,48 @@ const RISKY_PATTERNS = [
 export const llmService = {
   async generateSupportResponse(params: GenerateResponseParams): Promise<SupportResponseResult> {
     const { userMessage, faqMatch, ragChunks, systemPrompt, brandVoiceGuide } = params;
+
+    // Shopify stock is live operational data, so never answer it from FAQ/RAG or
+    // an LLM. Route explicit stock questions with an identifiable SKU to the
+    // tenant-scoped Shopify tool and use only the provider's returned values.
+    const isStockQuestion = /\b(stock|inventory|quantity|available|availability|kitna|kitni)\b/i.test(userMessage);
+    if (isStockQuestion) {
+      const labeledSku = userMessage.match(/\bsku(?:\s+is)?(?:\s*[:#=]\s*|\s+)["']?([a-z0-9][a-z0-9._-]{0,254})/i)?.[1];
+      const sku = labeledSku ?? userMessage.match(/\b[a-z0-9]+(?:[-_.][a-z0-9]+)+\b/i)?.[0];
+      if (!sku) {
+        return {
+          responseText: 'Please share the exact product SKU so I can check its live Shopify stock.',
+          source: 'fallback',
+          confidence: 0.95,
+          shouldEscalate: false,
+        };
+      }
+
+      try {
+        const stock = await ShopifyTool.checkStock(params.tenantId, { sku });
+        const locationSummary = stock.locations
+          .map((location) => `${location.name ?? 'Location'}: ${location.availableQuantity}`)
+          .join(', ');
+        return {
+          responseText: `Live Shopify stock for ${stock.sku}: ${stock.availableQuantity} available${locationSummary ? ` (${locationSummary})` : ''}.`,
+          source: 'shopify',
+          confidence: 1,
+          shouldEscalate: false,
+        };
+      } catch (error) {
+        logger.warn('Live Shopify stock lookup failed for support request', {
+          tenantId: params.tenantId,
+          error: error instanceof Error ? error.message : 'Unknown Shopify error',
+        });
+        return {
+          responseText: 'I could not retrieve live stock from Shopify just now. Please ask a store specialist to check it.',
+          source: 'fallback',
+          confidence: 0.2,
+          shouldEscalate: true,
+          escalationReason: 'Live Shopify stock lookup failed',
+        };
+      }
+    }
 
     // 1. Safety Check: If user demands refund or legal escalation
     for (const pattern of RISKY_PATTERNS) {
@@ -67,7 +110,7 @@ export const llmService = {
     if (ragChunks && ragChunks.length > 0 && ragChunks[0].score > 0) {
       
       // If Gemini API key is configured, use live LLM completion
-      if (env.GEMINI_API_KEY && env.NODE_ENV === 'production') {
+      if (env.GEMINI_API_KEY && env.NODE_ENV !== 'test') {
         try {
           const ragContext = ragChunks.map((c) => c.content).join('\n---\n');
           const reply = await runSupportAgent(userMessage, ragContext, 'Customer Support');

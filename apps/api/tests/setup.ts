@@ -10,3 +10,4 @@ process.env.JWT_SECRET = 'test_jwt_secret_at_least_16_chars';
 process.env.REDIS_HOST = 'localhost';
 process.env.REDIS_PORT = '6379';
 process.env.LOG_LEVEL = 'error';
+process.env.INTEGRATION_ENCRYPTION_KEY = 'test-only-integration-key-not-for-production';

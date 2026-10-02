@@ -104,6 +104,7 @@ describe('Phase 07 Workforce Orchestrator & Agent Graph', () => {
       .set('Authorization', `Bearer ${authToken}`);
     expect(trace.body.data.nodeExecutions).toHaveLength(3);
     expect(trace.body.data.nodeExecutions[0].inputContext).toEqual({ campaignId: 'campaign-1' });
+    expect(trace.body.data.nodeExecutions[0].outputContext.result.text).toContain('campaignId');
   });
 
   it('retries failed nodes within the configured limit', async () => {

@@ -1,129 +1,87 @@
+import { isDeepStrictEqual } from 'node:util';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { logger } from '../utils/logger';
 import { emitToTenant } from '../lib/socket';
 import { recordAuditLog } from './auditService';
-import { ShopifyTool } from '../tools/shopifyTool';
+import { ShopifyTool, shopifyRefundSchema, shopifyStockSchema, shopifyCancelSchema } from '../tools/shopifyTool';
+import { ShopifyClient } from './shopifyClient';
 import { QuickBooksTool } from '../tools/quickBooksTool';
 import { CrmTool } from '../tools/crmTool';
 
 export interface ExecuteActionParams {
-  tenantId: string;
-  agentId: string;
-  actionType: string; // e.g., 'shopify_refund', 'shopify_stock_check', 'qbo_invoice', 'crm_lead', 'social_publish'
-  payload: Record<string, any>;
-  approvalId?: string; // If resuming after approval
+  tenantId: string; agentId: string; actionType: string; payload: Record<string, any>; approvalId?: string;
 }
+const invoiceSchema = z.object({ customerId: z.string().min(1), amount: z.number().positive(), lineItems: z.array(z.object({ description: z.string(), amount: z.number() })) }).strict();
+const expenseSchema = z.object({ vendorId: z.string().min(1), amount: z.number().positive(), category: z.string().min(1) }).strict();
+const leadSchema = z.object({ name: z.string().min(1), email: z.string().email(), phone: z.string().optional(), source: z.string().optional() }).strict();
+const pipelineSchema = z.object({ leadId: z.string().min(1), stage: z.string().min(1) }).strict();
+const schemas: Record<string, z.ZodType> = {
+  shopify_refund: shopifyRefundSchema, shopify_stock_check: shopifyStockSchema, shopify_cancel: shopifyCancelSchema,
+  qbo_invoice: invoiceSchema, qbo_expense: expenseSchema, crm_lead: leadSchema, crm_pipeline: pipelineSchema,
+};
 
 export class ActionExecutorService {
-  /**
-   * Evaluates action risk and determines if HITL approval is required.
-   */
   static isActionRisky(actionType: string, payload: Record<string, any>): boolean {
-    if (actionType === 'shopify_refund') return true;
+    if (['shopify_refund', 'shopify_cancel', 'social_publish', 'external_email_send'].includes(actionType)) return true;
     if (actionType === 'purchase_order' && (payload.amount ?? 0) > 1000) return true;
-    if (actionType === 'qbo_invoice' && (payload.amount ?? 0) > 5000) return true;
-    if (actionType === 'social_publish' || actionType === 'external_email_send') return true;
-    return false;
+    return actionType === 'qbo_invoice' && (payload.amount ?? 0) > 5000;
   }
-
   static async executeAction(params: ExecuteActionParams) {
-    const { tenantId, agentId, actionType, payload, approvalId } = params;
+    const { tenantId, agentId, actionType, approvalId } = params;
+    if (!schemas[actionType]) throw new Error('Unsupported action type');
+    const payload = schemas[actionType].parse(params.payload) as Record<string, any>;
+    const agent = await prisma.agent.findFirst({ where: { id: agentId, tenantId }, select: { id: true } });
+    if (!agent) throw new Error('Agent not found for this tenant');
+    // Missing/disabled credentials must never produce a successful simulated action.
+    if (actionType.startsWith('shopify_')) await ShopifyClient.forTenant(tenantId, actionType !== 'shopify_stock_check');
 
-    // 1. Check if this is an execution following an approval
     if (approvalId) {
-      const approval = await prisma.approvalRequest.findFirst({
-        where: { id: approvalId, tenantId },
+      const approval = await prisma.approvalRequest.findFirst({ where: { id: approvalId, tenantId } });
+      if (!approval || approval.status !== 'approved') throw new Error('Approval is missing, not approved, or already used');
+      if (approval.requestedByAgentId !== agentId || approval.actionType !== actionType ||
+          !isDeepStrictEqual(approval.actionPayload, payload)) throw new Error('Action does not match the approved agent and payload');
+      // Atomic claim: only one caller can consume this approval.
+      const claimed = await prisma.approvalRequest.updateMany({
+        where: { id: approvalId, tenantId, status: 'approved', updatedAt: approval.updatedAt },
+        data: { status: 'executing' },
       });
-      if (!approval) {
-        throw new Error('Approval request not found');
-      }
-      if (approval.status !== 'approved') {
-        throw new Error(`Cannot execute action because approval request is ${approval.status}`);
-      }
-    } else {
-      // 2. Evaluate risk and whether approval is needed
-      const risky = ActionExecutorService.isActionRisky(actionType, payload);
-      if (risky) {
-        // Create approval request
-        const approval = await prisma.approvalRequest.create({
-          data: {
-            tenantId,
-            requestedByAgentId: agentId,
-            actionType,
-            actionPayload: payload,
-            status: 'pending',
-          },
-        });
-
-        // Emit real-time notification to Dashboard via Socket.io
-        emitToTenant(tenantId, 'approval:created', {
-          approvalId: approval.id,
-          agentId,
-          actionType,
-          payload,
-          createdAt: approval.createdAt,
-        });
-
-        await recordAuditLog({
-          tenantId,
-          actorType: 'agent',
-          actorId: agentId,
-          operation: 'pause_action_for_approval',
-          entityType: 'approval_request',
-          entityId: approval.id,
-          newValue: { actionType, payload, status: 'pending' },
-        });
-
-        logger.info('Action paused for HITL approval', { tenantId, agentId, actionType, approvalId: approval.id });
-
-        return {
-          status: 'PAUSED_FOR_APPROVAL',
-          requestId: approval.id,
-          message: 'Action requires human approval before executing external API call.',
-        };
-      }
+      if (claimed.count !== 1) throw new Error('Approval has already been claimed');
+    } else if (this.isActionRisky(actionType, payload)) {
+      const approval = await prisma.approvalRequest.create({
+        data: { tenantId, requestedByAgentId: agentId, actionType, actionPayload: payload, status: 'pending' },
+      });
+      emitToTenant(tenantId, 'approval:created', { approvalId: approval.id, agentId, actionType, payload, createdAt: approval.createdAt });
+      await recordAuditLog({ tenantId, actorType: 'agent', actorId: agentId, operation: 'pause_action_for_approval',
+        entityType: 'approval_request', entityId: approval.id, newValue: { actionType, payload, status: 'pending' } });
+      return { status: 'PAUSED_FOR_APPROVAL', requestId: approval.id, message: 'Human approval is required.' };
     }
 
-    // 3. Execute Direct Action Tool
-    let result: any;
     try {
-      if (actionType === 'shopify_refund') {
-        result = await ShopifyTool.processRefund(tenantId, payload);
-      } else if (actionType === 'shopify_stock_check') {
-        result = await ShopifyTool.checkStock(tenantId, payload);
-      } else if (actionType === 'shopify_cancel') {
-        result = await ShopifyTool.cancelOrder(tenantId, payload);
-      } else if (actionType === 'qbo_invoice') {
-        result = await QuickBooksTool.createInvoice(tenantId, payload);
-      } else if (actionType === 'qbo_expense') {
-        result = await QuickBooksTool.postExpense(tenantId, payload);
-      } else if (actionType === 'crm_lead') {
-        result = await CrmTool.createLead(tenantId, payload);
-      } else if (actionType === 'crm_pipeline') {
-        result = await CrmTool.updatePipelineStatus(tenantId, payload);
-      } else {
-        // Default general direct action
-        result = { success: true, actionType, payload, executedAt: new Date().toISOString() };
+      let result: any;
+      switch (actionType) {
+        case 'shopify_refund': result = await ShopifyTool.processRefund(tenantId, shopifyRefundSchema.parse(payload), approvalId!); break;
+        case 'shopify_stock_check': result = await ShopifyTool.checkStock(tenantId, shopifyStockSchema.parse(payload)); break;
+        case 'shopify_cancel': result = await ShopifyTool.cancelOrder(tenantId, shopifyCancelSchema.parse(payload)); break;
+        case 'qbo_invoice': result = await QuickBooksTool.createInvoice(tenantId, invoiceSchema.parse(payload)); break;
+        case 'qbo_expense': result = await QuickBooksTool.postExpense(tenantId, expenseSchema.parse(payload)); break;
+        case 'crm_lead': result = await CrmTool.createLead(tenantId, leadSchema.parse(payload)); break;
+        case 'crm_pipeline': result = await CrmTool.updatePipelineStatus(tenantId, pipelineSchema.parse(payload)); break;
       }
-
-      await recordAuditLog({
-        tenantId,
-        actorType: 'agent',
-        actorId: agentId,
-        operation: 'execute_direct_action',
-        entityType: 'action_execution',
-        entityId: agentId,
-        newValue: { actionType, payload, result },
+      if (approvalId) await prisma.approvalRequest.updateMany({
+        where: { id: approvalId, tenantId, status: 'executing' },
+        data: { status: result.status === 'pending' ? 'provider_pending' : 'executed' },
       });
-
-      logger.info('Direct action executed successfully', { tenantId, agentId, actionType });
-
-      return {
-        status: 'SUCCESS',
-        result,
-      };
+      await recordAuditLog({ tenantId, actorType: 'agent', actorId: agentId, operation: 'execute_direct_action',
+        entityType: 'action_execution', entityId: approvalId || agentId, newValue: { actionType, payload, result } });
+      return { status: result.status === 'pending' ? 'PENDING' : 'SUCCESS', result };
     } catch (error) {
-      logger.error('Direct action execution failed', { tenantId, agentId, actionType, error: error instanceof Error ? error.message : String(error) });
+      // A timeout or local persistence failure may follow an accepted remote write.
+      // Keep the approval consumed; reconciliation is required before a new attempt.
+      if (approvalId) await prisma.approvalRequest.updateMany({
+        where: { id: approvalId, tenantId, status: 'executing' }, data: { status: 'execution_uncertain' },
+      });
+      logger.error('Direct action execution failed', { tenantId, agentId, actionType });
       throw error;
     }
   }

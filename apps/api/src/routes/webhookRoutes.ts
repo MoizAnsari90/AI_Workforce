@@ -13,8 +13,52 @@ import {
   resumeAI,
 } from '../controllers/webhookController';
 import { VoiceService } from '../services/voiceService';
+import { whatsappService } from '../services/whatsappService';
+import { queueService } from '../services/queueService';
+import { logger } from '../utils/logger';
+import { IntegrationService } from '../services/integrationService';
 
 export const webhookRouter = Router();
+
+// Meta sends every subscribed WhatsApp account to one app-level webhook. Resolve
+// each message's phone number to the encrypted, tenant-owned integration record.
+webhookRouter.get('/webhook/whatsapp', (req, res) => {
+  const challenge = whatsappService.verifyWebhook(
+    req.query['hub.mode'] as string | undefined,
+    req.query['hub.verify_token'] as string | undefined,
+    req.query['hub.challenge'] as string | undefined,
+  );
+  return challenge ? res.status(200).send(challenge) : res.status(403).send('Webhook verification failed');
+});
+
+webhookRouter.post('/webhook/whatsapp', async (req, res) => {
+  const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? {}));
+  const signature = req.headers['x-hub-signature-256'];
+  if (!whatsappService.verifySignature(rawBody, Array.isArray(signature) ? signature[0] : signature)) {
+    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Invalid Meta webhook signature' } });
+  }
+  let payload: unknown;
+  try { payload = JSON.parse(rawBody.toString('utf8')); }
+  catch { return res.status(400).json({ success: false, error: { code: 'INVALID_WEBHOOK', message: 'Invalid JSON payload' } }); }
+  res.status(200).json({ status: 'received' });
+  setImmediate(async () => {
+    try {
+      const messages = whatsappService.parseWebhookPayload(payload);
+      for (const message of messages) {
+        if (!message.phoneNumberId) continue;
+        const matches = await prisma.$queryRaw<Array<{ tenantId: string }>>`
+          SELECT tenant_id AS "tenantId" FROM external_integration_credentials
+          WHERE provider = 'whatsapp' AND external_account_id = ${message.phoneNumberId} AND is_active = true
+          LIMIT 1`;
+        const connection = matches[0];
+        if (connection) await queueService.enqueue({ tenantId: connection.tenantId, message });
+        else logger.warn('WhatsApp webhook number is not connected to an active workspace', { phoneNumberId: message.phoneNumberId });
+      }
+    } catch (error) {
+      logger.error('Failed to route WhatsApp webhook messages', { error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // WhatsApp & Voice Webhooks (public — external services call these directly)
@@ -135,6 +179,10 @@ const businessConfigSchema = z.object({
   brandVoiceGuide: z.string().optional(),
   supportPhoneNumberId: z.string().optional(),
   supportAccessToken: z.string().optional(),
+}).superRefine((value, context) => {
+  if (Boolean(value.supportAccessToken) !== Boolean(value.supportPhoneNumberId)) {
+    context.addIssue({ code: 'custom', message: 'Phone Number ID and access token must be provided together.' });
+  }
 });
 
 // GET /api/v1/tenants/:tenantId/support-config
@@ -184,6 +232,14 @@ webhookRouter.put(
       const { tenantId } = req.params;
       const validated = businessConfigSchema.parse(req.body);
 
+      if (validated.supportAccessToken && validated.supportPhoneNumberId) {
+        await IntegrationService.storeCredential({
+          tenantId, provider: 'whatsapp', externalAccountId: validated.supportPhoneNumberId,
+          userId: req.user!.userId,
+          config: { accessToken: validated.supportAccessToken, phoneNumberId: validated.supportPhoneNumberId, supportPhoneNumberId: validated.supportPhoneNumberId, source: 'legacy-settings' },
+        });
+      }
+
       const existing = await prisma.business.findFirst({ where: { tenantId } });
 
       const business = existing
@@ -193,8 +249,8 @@ webhookRouter.put(
               ...(validated.name ? { name: validated.name } : {}),
               industry: validated.industry ?? existing.industry,
               brandVoiceGuide: validated.brandVoiceGuide ?? existing.brandVoiceGuide,
-              supportPhoneNumberId: validated.supportPhoneNumberId ?? existing.supportPhoneNumberId,
-              supportAccessToken: validated.supportAccessToken ?? existing.supportAccessToken,
+              supportPhoneNumberId: validated.supportAccessToken ? null : existing.supportPhoneNumberId,
+              supportAccessToken: validated.supportAccessToken ? null : existing.supportAccessToken,
             },
           })
         : await prisma.business.create({
@@ -203,8 +259,8 @@ webhookRouter.put(
               name: validated.name ?? 'My Business',
               industry: validated.industry ?? null,
               brandVoiceGuide: validated.brandVoiceGuide ?? null,
-              supportPhoneNumberId: validated.supportPhoneNumberId ?? null,
-              supportAccessToken: validated.supportAccessToken ?? null,
+              supportPhoneNumberId: null,
+              supportAccessToken: null,
             },
           });
 

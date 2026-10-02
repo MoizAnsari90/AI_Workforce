@@ -55,6 +55,21 @@ DocumentChunk
 Conversation
 Message
 Event
+AppointmentSlot
+PatientIntakeRecord
+IdempotencyLog
+
+## Sensitive Data and Field-Level Encryption
+Sensitive tenant data must be classified before storage and protected independently of general database access controls. At minimum, patient intake notes, medical-context fields, sensitive lead details, integration credentials, and regulated identifiers must be encrypted at rest using field-level encryption or an envelope-encryption service.
+
+Required specifications:
+- Use authenticated encryption such as AES-256-GCM, with a unique nonce, authentication tag, algorithm/version metadata, and ciphertext stored separately from plaintext.
+- Derive or wrap data keys from tenant-scoped keys managed by a KMS or equivalent key-management boundary; never hard-code keys in source code, environment files, logs, or client bundles.
+- Keep encryption/decryption behind a server-side data-protection service with least-privilege access and audit logging.
+- Encrypt data in transit with TLS and exclude secrets, raw patient notes, and sensitive lead payloads from logs, analytics events, browser storage, and error messages.
+- Apply tenant isolation to encrypted records and their indexes; ciphertext must never be used as a substitute for authorization checks.
+- Define retention, export, deletion, backup/restore, key-rotation, and incident-response procedures for regulated data.
+- Treat HIPAA/GDPR language as a readiness target requiring legal, security, and operational validation; documentation alone is not certification.
 
 ## Acceptance Criteria
 - Local PostgreSQL and Redis run reliably.
@@ -64,7 +79,11 @@ Event
 - RBAC is enforced server-side.
 - Tenant A cannot read/write Tenant B data.
 - Audit records can be created for sensitive actions.
-- Tests cover authentication and tenant isolation.
+- `AppointmentSlot`, `PatientIntakeRecord`, and `IdempotencyLog` migrations and tenant-scoped indexes are present.
+- `IdempotencyLog` enforces a unique `(tenantId, idempotencyKey)` constraint and supports atomic claim/replay semantics.
+- Sensitive fields are encrypted at rest and decrypted only through an audited server-side service.
+- Reminder jobs can be scheduled, retried, acknowledged, and traced without duplicating the underlying appointment action.
+- Tests cover authentication, tenant isolation, encryption/decryption, idempotent replay, and cross-tenant access denial.
 - Build/lint/tests pass.
 
 ## Non-Goals

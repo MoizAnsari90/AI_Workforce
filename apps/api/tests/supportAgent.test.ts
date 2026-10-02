@@ -6,6 +6,7 @@ import { whatsappService } from '../src/services/whatsappService';
 import { queueService } from '../src/services/queueService';
 import { supportAgentService } from '../src/services/supportAgentService';
 import { conversationService } from '../src/services/conversationService';
+import { ShopifyTool } from '../src/tools/shopifyTool';
 
 // ---------------------------------------------------------------------------
 // Phase 2 — Support AI Employee: AI/Human Handoff Tests
@@ -16,6 +17,9 @@ let authToken = '';
 let conversationId = '';
 
 const customerPhone = '+15550000001';
+// The webhook acknowledgement test queues work asynchronously; keep its sender
+// separate from the direct-processing fixture to avoid racing on the unique key.
+const webhookCustomerPhone = '+15550000004';
 
 beforeAll(async () => {
   // Register a tenant for these tests
@@ -123,11 +127,11 @@ describe('Webhook Fast Acknowledgement', () => {
             {
               value: {
                 metadata: { phone_number_id: 'phone_123' },
-                contacts: [{ wa_id: customerPhone, profile: { name: 'Test Customer' } }],
+                contacts: [{ wa_id: webhookCustomerPhone, profile: { name: 'Test Customer' } }],
                 messages: [
                   {
                     id: `wamid.test.${Date.now()}`,
-                    from: customerPhone,
+                    from: webhookCustomerPhone,
                     type: 'text',
                     text: { body: 'What are your opening hours?' },
                     timestamp: String(Math.floor(Date.now() / 1000)),
@@ -179,6 +183,34 @@ describe('Support Agent Message Processing', () => {
     const lastSent = sent[sent.length - 1];
     expect(lastSent.toPhone).toBe(customerPhone);
     expect(lastSent.text).toContain('Monday to Friday');
+  });
+
+  it('routes a customer stock question through the live Shopify tool and replies with its result', async () => {
+    const stockSpy = vi.spyOn(ShopifyTool, 'checkStock').mockResolvedValue({
+      success: true,
+      provider: 'shopify',
+      action: 'check_stock',
+      sku: 'sku-managed-1',
+      inventoryItemId: 'gid://shopify/InventoryItem/1',
+      availableQuantity: 100,
+      locations: [{ locationId: 'gid://shopify/Location/1', name: 'Shop location', availableQuantity: 100 }],
+      locationNamesAvailable: true,
+    });
+    whatsappService.clearMockSentMessages();
+
+    const result = await supportAgentService.processInboundMessage(tenantId, {
+      metaMessageId: `wamid.stock.${Date.now()}`,
+      fromPhone: '+15550000003',
+      customerName: 'Stock Test Customer',
+      text: 'sku-managed-1 ka stock kitna hai?',
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(stockSpy).toHaveBeenCalledWith(tenantId, { sku: 'sku-managed-1' });
+    expect(result.responseSource).toBe('shopify');
+    expect(result.escalated).toBe(false);
+    expect(whatsappService.getSentMessages(tenantId).at(-1)?.text).toContain('100 available');
+    stockSpy.mockRestore();
   });
 
   it('stores inbound and outbound messages in the conversation', async () => {

@@ -18,8 +18,7 @@ interface DashboardData {
   lowStockAlerts: number;
   pendingApprovals: number;
   tasksCompleted: number;
-  hoursSaved: number;
-  autonomyScore: number;
+  aiRepliesPer100Inbound: number | null;
   agents: Agent[];
   recentActivity: Array<{
     id: string;
@@ -36,6 +35,13 @@ interface DashboardData {
   }>;
 }
 
+function getTimeGreeting(date: Date) {
+  const hour = date.getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
 export default function DashboardPage() {
   const { user, tenant } = useAuth();
   const { showToast } = useToast();
@@ -44,14 +50,23 @@ export default function DashboardPage() {
     lowStockAlerts: 0,
     pendingApprovals: 0,
     tasksCompleted: 0,
-    hoursSaved: 0,
-    autonomyScore: 92,
+    aiRepliesPer100Inbound: null,
     agents: [],
     recentActivity: [],
     recentPo: [],
   });
   const [loading, setLoading] = useState(false);
   const [chatPrompt, setChatPrompt] = useState("");
+  const [assistantAnswer, setAssistantAnswer] = useState("");
+  const [assistantLoading, setAssistantLoading] = useState(false);
+  const [timeGreeting, setTimeGreeting] = useState("Good morning");
+
+  useEffect(() => {
+    const updateGreeting = () => setTimeGreeting(getTimeGreeting(new Date()));
+    updateGreeting();
+    const intervalId = window.setInterval(updateGreeting, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   const fetchDashboard = () => {
     if (!user?.tenantId) return;
@@ -128,6 +143,37 @@ export default function DashboardPage() {
     }
   };
 
+  const askWorkforce = async () => {
+    const question = chatPrompt.trim();
+    const tenantId = user?.tenantId || tenant?.id;
+    if (!question || assistantLoading) return;
+    if (!tenantId) {
+      showToast("Workspace context missing. Please re-login.", "warning", "Session Expired");
+      return;
+    }
+
+    setAssistantLoading(true);
+    setAssistantAnswer("");
+    try {
+      const response = await fetch(`/api/proxy/tenants/${tenantId}/workforce/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result?.data?.answer) {
+        throw new Error(result.error?.message || "The workforce assistant could not answer.");
+      }
+      setAssistantAnswer(result.data.answer);
+      setChatPrompt("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The workforce assistant could not answer.";
+      showToast(message, "error", "Assistant Error");
+    } finally {
+      setAssistantLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-24 text-slate-100">
       {/* Top Welcome Banner */}
@@ -138,16 +184,16 @@ export default function DashboardPage() {
             Workspace: {tenant?.name || "Active Workspace"}
           </div>
           <h1 className="text-2xl lg:text-3xl font-bold tracking-tight font-serif">
-            Good morning, {user?.email?.split("@")[0] || "Team Member"}.
+            {timeGreeting}, {user?.email?.split("@")[0] || "Team Member"}.
           </h1>
           <p className="text-slate-400 text-sm mt-1">
-            Your AI workforce is running smoothly. Here's what's happening across your operation.
+            Review current stock, agent task results, and approval requests.
           </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="px-4 py-2 rounded-xl bg-slate-900/90 border border-slate-800 text-right">
             <div className="text-[10px] text-slate-400 uppercase tracking-wider">Live Command Center</div>
-            <div className="text-sm font-semibold text-emerald-400">All Agents Online</div>
+            <div className="text-sm font-semibold text-emerald-400">{data.agents.filter((agent) => agent.isActive).length} active agents</div>
           </div>
         </div>
       </div>
@@ -156,27 +202,27 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
         <Card className="border-slate-800 bg-slate-900/60 backdrop-blur text-white shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-medium text-slate-400 uppercase tracking-wider">Tasks completed</CardTitle>
+            <CardTitle className="text-xs font-medium text-slate-400 uppercase tracking-wider">Agent tasks completed</CardTitle>
             <span className="text-emerald-400 text-xs font-semibold">Live DB</span>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-white">
               {loading ? "..." : (data.tasksCompleted ?? 0).toLocaleString()}
             </div>
-            <p className="text-xs text-slate-500 mt-1">Total recorded executions</p>
+            <p className="text-xs text-slate-500 mt-1">Completed tasks assigned to an agent</p>
           </CardContent>
         </Card>
 
         <Card className="border-slate-800 bg-slate-900/60 backdrop-blur text-white shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-medium text-slate-400 uppercase tracking-wider">Hours saved</CardTitle>
-            <span className="text-cyan-400 text-xs font-semibold">Estimated</span>
+            <CardTitle className="text-xs font-medium text-slate-400 uppercase tracking-wider">AI replies per 100 inbound</CardTitle>
+            <span className="text-cyan-400 text-xs font-semibold">Live DB</span>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-white">
-              {loading ? "..." : data.hoursSaved ?? 0}<span className="text-lg text-cyan-400 font-normal">h</span>
+              {loading ? "..." : data.aiRepliesPer100Inbound == null ? "—" : data.aiRepliesPer100Inbound}
             </div>
-            <p className="text-xs text-slate-500 mt-1">Operational efficiencies</p>
+            <p className="text-xs text-slate-500 mt-1">Counted from inbound and outbound message records</p>
           </CardContent>
         </Card>
 
@@ -195,14 +241,14 @@ export default function DashboardPage() {
 
         <Card className="border-slate-800 bg-slate-900/60 backdrop-blur text-white shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-medium text-slate-400 uppercase tracking-wider">Autonomy score</CardTitle>
-            <span className="text-emerald-400 text-xs font-semibold">Reliability</span>
+            <CardTitle className="text-xs font-medium text-slate-400 uppercase tracking-wider">Inventory records</CardTitle>
+            <span className="text-emerald-400 text-xs font-semibold">Live DB</span>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-white">
-              {loading ? "..." : data.autonomyScore ?? 92}<span className="text-lg text-emerald-400 font-normal">%</span>
+              {loading ? "..." : data.inventoryCount.toLocaleString()}
             </div>
-            <p className="text-xs text-slate-500 mt-1">System trust index</p>
+            <p className="text-xs text-slate-500 mt-1">Stock records tracked across locations</p>
           </CardContent>
         </Card>
       </div>
@@ -215,24 +261,13 @@ export default function DashboardPage() {
             <CardHeader className="flex flex-row items-center justify-between">
               <div>
                 <CardTitle className="text-base font-bold text-white">Workforce performance</CardTitle>
-                <CardDescription className="text-xs text-slate-400">Tasks completed & hours saved over time</CardDescription>
+                <CardDescription className="text-xs text-slate-400">History will appear here as task executions are recorded</CardDescription>
               </div>
-              <span className="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-xl">Last 30 days ▾</span>
+              <span className="text-xs text-slate-400 bg-slate-800 px-3 py-1 rounded-xl">Execution history</span>
             </CardHeader>
             <CardContent>
-              <div className="h-64 flex items-end justify-between gap-2 pt-8 pb-2 px-4 border-b border-slate-800 relative">
-                {/* Glowing SVG simulated wave chart */}
-                <svg className="absolute inset-0 w-full h-full p-4 overflow-visible" preserveAspectRatio="none" viewBox="0 0 500 200">
-                  <path d="M 0 150 Q 125 60 250 110 T 500 40" fill="none" stroke="#06b6d4" strokeWidth="3" className="glow-cyan" />
-                  <path d="M 0 180 Q 125 100 250 140 T 500 80" fill="none" stroke="#6366f1" strokeWidth="2" strokeDasharray="4 4" />
-                </svg>
-              </div>
-              <div className="flex justify-between text-xs text-slate-500 pt-3">
-                <span>Aug 21</span>
-                <span>Aug 28</span>
-                <span>Sep 04</span>
-                <span>Sep 11</span>
-                <span>Sep 19</span>
+              <div className="flex h-48 items-center justify-center rounded-xl border border-dashed border-slate-700 text-sm text-slate-400">
+                Activity charts require timestamped workflow execution records.
               </div>
             </CardContent>
           </Card>
@@ -338,7 +373,8 @@ export default function DashboardPage() {
 
       {/* Bottom Floating AI Command Bar */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4 z-50">
-        <div className="p-2 rounded-2xl bg-slate-900/90 border border-cyan-500/40 backdrop-b1ur shadow-2xl glow-cyan flex items-center gap-3">
+        {assistantAnswer && <div role="status" className="mb-2 max-h-48 overflow-y-auto rounded-2xl border border-slate-700 bg-slate-950/95 p-4 text-sm leading-relaxed text-slate-100 shadow-xl">{assistantAnswer}</div>}
+        <form onSubmit={(event) => { event.preventDefault(); void askWorkforce(); }} className="p-2 rounded-2xl bg-slate-900/90 border border-cyan-500/40 backdrop-blur shadow-2xl glow-cyan flex items-center gap-3">
           <div className="w-8 h-8 rounded-xl bg-cyan-500/20 flex items-center justify-center text-cyan-400 text-sm">
             ✦
           </div>
@@ -347,13 +383,15 @@ export default function DashboardPage() {
             placeholder="Ask your workforce anything..."
             value={chatPrompt}
             onChange={(e) => setChatPrompt(e.target.value)}
+            disabled={assistantLoading}
+            aria-label="Ask your workforce"
             className="flex-1 bg-transparent border-none text-sm text-white placeholder:text-slate-500 focus:outline-none"
           />
-          <button className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs transition-colors flex items-center gap-1">
-            <span>Send</span>
+          <button type="submit" disabled={assistantLoading || !chatPrompt.trim()} className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-bold text-xs transition-colors flex items-center gap-1">
+            <span>{assistantLoading ? "Thinking…" : "Send"}</span>
             <span>↗</span>
           </button>
-        </div>
+        </form>
       </div>
     </div>
   );

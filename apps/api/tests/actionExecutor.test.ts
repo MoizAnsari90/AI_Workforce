@@ -1,4 +1,10 @@
-import { describe, it, expect } from 'vitest';
+// These integration tests exercise the local approval flow, never a real provider.
+vi.mock('../src/services/shopifyClient', () => ({ ShopifyClient: { forTenant: vi.fn().mockResolvedValue({}) } }));
+vi.mock('../src/tools/shopifyTool', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/tools/shopifyTool')>();
+  return { ...actual, ShopifyTool: { processRefund: vi.fn(async (_tenant, payload) => ({ success: true, ...payload, status: 'processed' })) } };
+});
+import { describe, it, expect, vi } from 'vitest';
 import { prisma } from '../src/lib/prisma';
 import { ActionExecutorService } from '../src/services/actionExecutorService';
 import { ApprovalService } from '../src/services/approvalService';
@@ -22,7 +28,7 @@ describe('ActionExecutor & HITL Approval Flow Tests', () => {
       tenantId: tenant.id,
       agentId: agent.id,
       actionType: 'shopify_refund',
-      payload: { orderId: 'ord_999', amount: 250 },
+      payload: { orderId: 'gid://shopify/Order/999', amount: 250, currency: 'USD', parentTransactionId: 'gid://shopify/OrderTransaction/123' },
     });
 
     expect(executionResponse.status).toBe('PAUSED_FOR_APPROVAL');
@@ -91,7 +97,7 @@ describe('ActionExecutor & HITL Approval Flow Tests', () => {
       tenantId: tenant.id,
       agentId: agent.id,
       actionType: 'shopify_refund',
-      payload: { orderId: 'ord_555', amount: 80 },
+      payload: { orderId: 'gid://shopify/Order/555', amount: 80, currency: 'USD', parentTransactionId: 'gid://shopify/OrderTransaction/123' },
     });
 
     expect(pausedResponse.status).toBe('PAUSED_FOR_APPROVAL');
@@ -110,7 +116,7 @@ describe('ActionExecutor & HITL Approval Flow Tests', () => {
       tenantId: tenant.id,
       agentId: agent.id,
       actionType: 'shopify_refund',
-      payload: { orderId: 'ord_555', amount: 80 },
+      payload: { orderId: 'gid://shopify/Order/555', amount: 80, currency: 'USD', parentTransactionId: 'gid://shopify/OrderTransaction/123' },
       approvalId,
     });
 

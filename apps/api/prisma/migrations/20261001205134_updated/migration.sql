@@ -1,0 +1,2 @@
+-- RenameIndex
+ALTER INDEX "external_integration_credentials_provider_external_account_id_k" RENAME TO "external_integration_credentials_provider_external_account__key";

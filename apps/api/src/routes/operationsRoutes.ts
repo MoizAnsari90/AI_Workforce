@@ -6,6 +6,11 @@ import { enforceTenantIsolation } from '../middleware/tenantIsolationMiddleware'
 import { requirePermission, requireRole } from '../middleware/rbacMiddleware';
 import { prisma } from '../lib/prisma';
 import { operationsService } from '../services/operationsService';
+import { runWorkforceAssistant } from '../services/geminiService';
+import { answerWorkforceStockQuestion } from '../services/workforceStockService';
+import { answerVerifiedMetrics } from '../services/workforceMetricsService';
+import { parseWorkforcePeriod, requestsSpecificPeriod } from '../services/workforcePeriod';
+import { NotFoundError } from '../errors/AppError';
 
 export const operationsRouter = Router();
 operationsRouter.use('/tenants/:tenantId', authenticate, enforceTenantIsolation);
@@ -22,9 +27,9 @@ operationsRouter.get('/tenants/:tenantId/operations/dashboard', requirePermissio
       inventoryCount,
       lowStockAlerts,
       pendingApprovals,
-      totalTasks,
       completedTasks,
-      toolInvocationsCount,
+      aiReplies,
+      inboundMessages,
       agents,
       recentActivity,
       recentPo
@@ -32,29 +37,73 @@ operationsRouter.get('/tenants/:tenantId/operations/dashboard', requirePermissio
       prisma.inventoryRecord.count({ where: { tenantId } }),
       prisma.stockAlert.count({ where: { tenantId, status: 'open' } }),
       prisma.approvalRequest.count({ where: { tenantId, status: 'pending' } }),
-      prisma.task.count({ where: { tenantId } }),
-      prisma.task.count({ where: { tenantId, status: 'completed' } }),
-      prisma.toolInvocation.count({ where: { tenantId } }),
+      prisma.task.count({ where: { tenantId, status: 'completed', agentId: { not: null } } }),
+      prisma.message.count({ where: { tenantId, direction: 'outbound', senderType: 'ai' } }),
+      prisma.message.count({ where: { tenantId, direction: 'inbound', senderType: 'customer' } }),
       prisma.agent.findMany({ where: { tenantId }, take: 10, orderBy: { createdAt: 'desc' } }),
       prisma.auditLog.findMany({ where: { tenantId }, take: 5, orderBy: { createdAt: 'desc' } }),
       prisma.purchaseOrder.findMany({ where: { tenantId }, take: 5, orderBy: { createdAt: 'desc' } })
     ]);
 
-    const tasksCompleted = completedTasks > 0 ? completedTasks : totalTasks + toolInvocationsCount;
-    const hoursSaved = Math.round(tasksCompleted * 0.75);
-    const autonomyScore = tasksCompleted > 0 ? Math.min(99, 80 + Math.floor(tasksCompleted / 2)) : 88;
-
     send(res, {
       inventoryCount,
       lowStockAlerts,
       pendingApprovals,
-      tasksCompleted,
-      hoursSaved,
-      autonomyScore,
+      tasksCompleted: completedTasks,
+      aiRepliesPer100Inbound: inboundMessages === 0 ? null : Math.round(aiReplies / inboundMessages * 100),
       agents,
       recentActivity,
       recentPo,
     });
+  } catch (error) { next(error); }
+});
+
+operationsRouter.post('/tenants/:tenantId/workforce/ask', requirePermission('operations:read'), async (req, res, next) => {
+  try {
+    const { question } = z.object({ question: z.string().trim().min(1).max(2000) }).parse(req.body);
+    const tenantId = req.params.tenantId;
+    const stockAnswer = await answerWorkforceStockQuestion(req.tenantId!, question);
+    if (stockAnswer) return send(res, stockAnswer);
+    const [tenant, inventoryCount, lowStockAlerts, pendingApprovals, completedTasks, totalTasks, inboundMessages, aiReplies] = await Promise.all([
+      prisma.tenant.findFirst({ where: { id: tenantId }, select: { name: true } }),
+      prisma.inventoryRecord.count({ where: { tenantId } }),
+      prisma.stockAlert.count({ where: { tenantId, status: 'open' } }),
+      prisma.approvalRequest.count({ where: { tenantId, status: 'pending' } }),
+      prisma.task.count({ where: { tenantId, status: 'completed', agentId: { not: null } } }),
+      prisma.task.count({ where: { tenantId } }),
+      prisma.message.count({ where: { tenantId, direction: 'inbound', senderType: 'customer' } }),
+      prisma.message.count({ where: { tenantId, direction: 'outbound', senderType: 'ai' } }),
+    ]);
+    if (!tenant) throw new NotFoundError('Workspace was not found');
+
+    const replyCoverage = inboundMessages === 0 ? null : Math.round(aiReplies / inboundMessages * 100);
+    const metrics = {
+      inventoryCount,
+      lowStockAlerts,
+      pendingApprovals,
+      completedAgentTasks: completedTasks,
+      totalTasks,
+      inboundCustomerMessages: inboundMessages,
+      aiOutboundReplies: aiReplies,
+      aiRepliesPer100Inbound: replyCoverage,
+    };
+    const period = requestsSpecificPeriod(question) ? parseWorkforcePeriod(question) : null;
+    if (period) {
+      const dateRange = { gte: period.start, lt: period.end };
+      const [periodInbound, periodReplies, periodTasks, periodCompletedTasks, periodApprovals, periodAlerts] = await Promise.all([
+        prisma.message.count({ where: { tenantId, direction: 'inbound', senderType: 'customer', createdAt: dateRange } }),
+        prisma.message.count({ where: { tenantId, direction: 'outbound', senderType: 'ai', createdAt: dateRange } }),
+        prisma.task.count({ where: { tenantId, createdAt: dateRange } }),
+        prisma.task.count({ where: { tenantId, status: 'completed', agentId: { not: null }, completedAt: dateRange } }),
+        prisma.approvalRequest.count({ where: { tenantId, status: 'pending', createdAt: dateRange } }),
+        prisma.stockAlert.count({ where: { tenantId, status: 'open', createdAt: dateRange } }),
+      ]);
+      Object.assign(metrics, { inboundCustomerMessages: periodInbound, aiOutboundReplies: periodReplies, totalTasks: periodTasks, completedAgentTasks: periodCompletedTasks, pendingApprovals: periodApprovals, lowStockAlerts: periodAlerts });
+    }
+    const verifiedAnswer = answerVerifiedMetrics(question, metrics, period);
+    if (verifiedAnswer) return send(res, { answer: verifiedAnswer, source: 'database', readOnly: true, checkedAt: new Date().toISOString() });
+    const answer = await runWorkforceAssistant(question, tenant.name, metrics);
+    send(res, { answer, source: 'gemini', readOnly: true });
   } catch (error) { next(error); }
 });
 

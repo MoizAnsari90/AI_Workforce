@@ -2,6 +2,8 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { ConflictError, NotFoundError, ValidationError } from '../errors/AppError';
 import { recordAuditLog } from './auditService';
+import { runAgentTask } from './geminiService';
+import { ActionExecutorService } from './actionExecutorService';
 
 const nodeTypes = ['agent_task', 'tool_action', 'verification', 'approval', 'wait', 'human_handoff'] as const;
 type NodeType = (typeof nodeTypes)[number];
@@ -54,6 +56,9 @@ export const orchestratorService = {
       keys.add(node.key);
       if (!nodeTypes.includes(node.type)) throw new ValidationError(`Unsupported workflow node type: ${node.type}`);
       if (['agent_task', 'tool_action', 'approval'].includes(node.type) && !node.agentId) throw new ValidationError(`Node ${node.key} requires an agentId`);
+      if (node.type === 'tool_action' && (node.config?.actionType !== 'shopify_stock_check' || !node.config.payload || typeof node.config.payload !== 'object' || Array.isArray(node.config.payload))) {
+        throw new ValidationError(`Node ${node.key} must define a Shopify stock-check action and object payload`);
+      }
     }
     for (const edge of input.edges) {
       if (!keys.has(edge.from) || !keys.has(edge.to)) throw new ValidationError('Workflow edge references an unknown node');
@@ -132,7 +137,52 @@ export const orchestratorService = {
       return prisma.workflowExecution.update({ where: { id: executionId }, data: { status: 'paused' } });
     }
 
-    const output = { nodeKey: node.nodeKey, nodeType: node.nodeType, agentId: node.agentId ?? null, acceptedContext: input };
+    let result: Record<string, unknown>;
+    try {
+      if (node.nodeType === 'agent_task') {
+        const agent = await prisma.agent.findFirst({ where: { id: node.agentId!, tenantId, isActive: true }, include: { versions: { orderBy: { createdAt: 'desc' }, take: 1 } } });
+        if (!agent) throw new NotFoundError('Workflow agent is no longer active in this tenant');
+        const version = agent.versions.find((item) => item.id === agent.currentVersionId) ?? agent.versions[0];
+        const systemPrompt = version?.systemPrompt.trim() || `You are ${agent.name}, a ${agent.department} agent. Complete the requested task using only the provided context.`;
+        result = { text: await runAgentTask(systemPrompt, input) };
+      } else if (node.nodeType === 'tool_action') {
+        const agent = await prisma.agent.findFirst({ where: { id: node.agentId!, tenantId, isActive: true } });
+        if (!agent) throw new NotFoundError('Workflow agent is no longer active in this tenant');
+        if (agent.currentVersionId) {
+          const version = await prisma.agentVersion.findFirst({ where: { id: agent.currentVersionId, agentId: agent.id } });
+          if (version?.toolAllowlist.length && !version.toolAllowlist.includes('shopify_stock_check')) {
+            throw new ValidationError('Workflow agent is not allowed to use Shopify stock lookup');
+          }
+        }
+        const configuredPayload = objectValue(config.payload as Prisma.JsonValue);
+        const payload = Object.fromEntries(Object.entries(configuredPayload).map(([key, value]) => [
+          key,
+          typeof value === 'string' && /^\$\{[A-Za-z0-9_.-]+\}$/.test(value)
+            ? input[value.slice(2, -1)]
+            : value,
+        ]));
+        const action = await ActionExecutorService.executeAction({
+          tenantId,
+          agentId: node.agentId!,
+          actionType: 'shopify_stock_check',
+          payload,
+        });
+        if (action.status !== 'SUCCESS' || !action.result || typeof action.result !== 'object') {
+          throw new ConflictError('Shopify stock lookup did not complete successfully');
+        }
+        result = action.result as Record<string, unknown>;
+      } else {
+        result = { approved: true };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Workflow node execution failed';
+      await prisma.workflowNodeExecution.update({ where: { id: nodeExecution.id }, data: { status: 'failed', errorMessage: message, completedAt: new Date() } });
+      const failed = await prisma.workflowExecution.update({ where: { id: executionId }, data: { status: 'failed', retryCount: { increment: 1 } } });
+      await recordAuditLog({ tenantId, actorType: 'user', actorId, operation: 'workflow_node_failed', entityType: 'workflow_execution', entityId: executionId, newValue: { nodeKey: node.nodeKey, attempt, error: message } });
+      return failed;
+    }
+
+    const output = { nodeKey: node.nodeKey, nodeType: node.nodeType, agentId: node.agentId ?? null, acceptedContext: input, result };
     const nextContext = { ...context };
     if (typeof config.outputKey === 'string') nextContext[config.outputKey] = output;
     await prisma.workflowNodeExecution.update({ where: { id: nodeExecution.id }, data: { status: 'completed', outputContext: jsonValue(output), completedAt: new Date() } });
@@ -173,12 +223,25 @@ export const orchestratorService = {
     const executionId = typeof payload.executionId === 'string' ? payload.executionId : null;
     const nodeExecutionId = typeof payload.nodeExecutionId === 'string' ? payload.nodeExecutionId : null;
     if (!executionId || !nodeExecutionId) throw new ValidationError('Workflow approval payload is invalid');
-    const updated = await prisma.approvalRequest.update({ where: { id: approvalId }, data: { status: decision, reviewedByUserId: reviewerId, rejectionReason: decision === 'rejected' ? rejectionReason : null } });
+    const claimed = await prisma.approvalRequest.updateMany({
+      where: { id: approvalId, tenantId, actionType: 'workflow_approval', status: 'pending' },
+      data: { status: decision, reviewedByUserId: reviewerId, rejectionReason: decision === 'rejected' ? rejectionReason : null },
+    });
+    if (claimed.count !== 1) throw new ConflictError('Approval request has already been reviewed');
+    const updated = await prisma.approvalRequest.findFirstOrThrow({ where: { id: approvalId, tenantId } });
     if (decision === 'approved') {
       await prisma.workflowNodeExecution.update({ where: { id: nodeExecutionId }, data: { status: 'completed', completedAt: new Date(), outputContext: jsonValue({ approved: true }) } });
-      const execution = await prisma.workflowExecution.findUniqueOrThrow({ where: { id: executionId }, include: { currentNode: { include: { outgoing: { include: { toNode: true } } } } } });
-      const nextEdge = execution.currentNode?.outgoing[0];
-      await prisma.workflowExecution.update({ where: { id: executionId }, data: nextEdge ? { status: 'running', currentNodeId: nextEdge.toNode.id } : { status: 'completed', currentNodeId: null, completedAt: new Date() } });
+      const execution = await prisma.workflowExecution.findFirstOrThrow({ where: { id: executionId, tenantId }, include: { currentNode: { include: { outgoing: { include: { toNode: true } } } } } });
+      const context = objectValue(execution.context);
+      const config = objectValue(execution.currentNode?.config);
+      const approvalKey = typeof config.outputKey === 'string' ? config.outputKey : 'approval';
+      const nextContext = { ...context, [approvalKey]: true };
+      const eligibleEdges = execution.currentNode?.outgoing.filter((edge) => conditionMatches(edge.condition, nextContext)) ?? [];
+      if (eligibleEdges.length > 1) throw new ValidationError('Workflow approval matched more than one outgoing edge');
+      const nextEdge = eligibleEdges[0];
+      await prisma.workflowExecution.update({ where: { id: executionId }, data: nextEdge
+        ? { status: 'running', currentNodeId: nextEdge.toNode.id, context: jsonValue(nextContext) }
+        : { status: 'completed', currentNodeId: null, context: jsonValue(nextContext), completedAt: new Date() } });
     } else {
       await prisma.workflowNodeExecution.update({ where: { id: nodeExecutionId }, data: { status: 'failed', errorMessage: rejectionReason ?? 'Approval rejected', completedAt: new Date() } });
       await prisma.workflowExecution.update({ where: { id: executionId }, data: { status: 'failed', completedAt: new Date() } });

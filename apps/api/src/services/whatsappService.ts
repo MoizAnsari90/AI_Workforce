@@ -39,11 +39,11 @@ export const whatsappService = {
 
   verifySignature(rawBody: Buffer | string | undefined, signatureHeader?: string): boolean {
     if (!rawBody) {
-      return env.NODE_ENV !== 'production';
+      return env.NODE_ENV === 'test';
     }
 
     if (!signatureHeader) {
-      return env.NODE_ENV !== 'production';
+      return env.NODE_ENV === 'test';
     }
 
     const secret = env.META_APP_SECRET;
@@ -56,11 +56,10 @@ export const whatsappService = {
     const providedSignature = Buffer.from(signatureHeader);
     const expectedBuffer = Buffer.from(expectedSignature);
 
-    if (providedSignature.length !== expectedBuffer.length) {
-      return false;
-    }
+    if (providedSignature.length !== expectedBuffer.length) return false;
 
-    return crypto.timingSafeEqual(providedSignature, expectedBuffer);
+    const isValid = crypto.timingSafeEqual(providedSignature, expectedBuffer);
+    return isValid;
   },
 
   /**
@@ -117,14 +116,28 @@ export const whatsappService = {
   ): Promise<{ success: boolean; messageId: string }> {
     const mockMessageId = `wamid.mock.${Date.now()}.${Math.random().toString(36).substring(7)}`;
 
-    // Resolve credentials: per-business config takes priority, falls back to env
-    const resolvedToken = accessToken || env.META_ACCESS_TOKEN;
-    const resolvedPhoneNumberId = phoneNumberId || env.META_PHONE_NUMBER_ID;
+    // Resolve account credentials by tenant. Platform-wide credentials must not
+    // be used to send one tenant's message from another tenant's number.
+    let resolvedToken = accessToken;
+    let resolvedPhoneNumberId = phoneNumberId;
+    if ((!resolvedToken || !resolvedPhoneNumberId) && env.NODE_ENV !== 'test') {
+      const { IntegrationService } = await import('./integrationService');
+      const tenantCredential = await IntegrationService.getWhatsAppCredential(tenantId);
+      resolvedToken ||= tenantCredential.accessToken;
+      resolvedPhoneNumberId ||= tenantCredential.phoneNumberId;
+    }
+    if (env.NODE_ENV !== 'production') {
+      resolvedToken ||= env.META_ACCESS_TOKEN;
+      resolvedPhoneNumberId ||= env.META_PHONE_NUMBER_ID;
+    }
+    if (env.NODE_ENV === 'production' && (!resolvedToken || !resolvedPhoneNumberId)) {
+      throw new Error('This workspace has no connected WhatsApp Business number');
+    }
 
-    // If live credentials exist, send to Meta Cloud API
-    if (resolvedToken && resolvedPhoneNumberId && env.NODE_ENV === 'production') {
+    // If live credentials exist, send to Meta Cloud API (in dev/prod when credentials are configured, skipping only in automated test suite)
+    if (resolvedToken && resolvedPhoneNumberId && env.NODE_ENV !== 'test') {
       try {
-        const url = `https://graph.facebook.com/v20.0/${resolvedPhoneNumberId}/messages`;
+        const url = `https://graph.facebook.com/${env.META_GRAPH_API_VERSION || 'v26.0'}/${resolvedPhoneNumberId}/messages`;
         const response = await fetch(url, {
           method: 'POST',
           headers: {

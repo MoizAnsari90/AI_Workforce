@@ -21,10 +21,17 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   META_VERIFY_TOKEN: isProduction || isTest ? z.string().min(1, 'META_VERIFY_TOKEN is required') : z.string().optional(),
   META_APP_SECRET: isProduction || isTest ? z.string().min(1, 'META_APP_SECRET is required') : z.string().optional(),
+  META_APP_ID: z.string().optional(),
+  META_EMBEDDED_SIGNUP_CONFIG_ID: z.string().optional(),
+  META_GRAPH_API_VERSION: z.string().regex(/^v\d+\.0$/).default('v26.0'),
+  WOOCOMMERCE_CALLBACK_URL: z.string().url().optional(),
   META_ACCESS_TOKEN: z.string().optional(),
   META_PHONE_NUMBER_ID: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  MEDICAL_DATA_ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, 'must be 32 bytes encoded as 64 hexadecimal characters').optional(),
+  GEMINI_MODEL: z.string().min(1).default('gemini-3.8-flash'),
+  GEMINI_EMBEDDING_MODEL: z.string().min(1).default('gemini-embedding-001'),
 });
 
 const parsed = envSchema.safeParse(process.env);

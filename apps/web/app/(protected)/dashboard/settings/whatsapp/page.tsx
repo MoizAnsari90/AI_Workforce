@@ -1,191 +1,144 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext.hooks";
-import { useToast } from "@/contexts/ToastContext";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
-const whatsAppConfigSchema = z.object({
-  supportPhoneNumberId: z.string().min(1, "Phone Number ID is required"),
-  supportAccessToken: z.string().min(1, "WhatsApp API Access Token is required"),
-  brandVoiceGuide: z.string().optional(),
-  industry: z.string().optional(),
-});
+type Connection = { connected: boolean; phoneNumber?: string | null; verifiedName?: string | null; status?: string; expiresAt?: string | null };
+type SignupConfig = { appId: string; configId: string; graphApiVersion: string };
+type MetaLoginResponse = { authResponse?: { code?: string } };
+declare global { interface Window { FB?: { init: (options: Record<string, unknown>) => void; login: (callback: (response: MetaLoginResponse) => void, options: Record<string, unknown>) => void }; fbAsyncInit?: () => void } }
 
 export default function WhatsAppSettingsPage() {
-  const { user, tenant } = useAuth();
-  const { showToast } = useToast();
-  const [loading, setLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+  const { user } = useAuth();
+  const [config, setConfig] = useState<SignupConfig | null>(null);
+  const [connection, setConnection] = useState<Connection | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [sdkLoaded, setSdkLoaded] = useState(false);
+  const [notice, setNotice] = useState("");
+  const signupAssets = useRef<{ code?: string; wabaId?: string; phoneNumberId?: string }>({});
+  const completionStarted = useRef(false);
 
-  const form = useForm<z.infer<typeof whatsAppConfigSchema>>({
-    resolver: zodResolver(whatsAppConfigSchema),
-    defaultValues: {
-      supportPhoneNumberId: "",
-      supportAccessToken: "",
-      brandVoiceGuide: "",
-      industry: "",
-    },
-  });
+  const refresh = useCallback(async () => {
+    if (!user?.tenantId) return;
+    try {
+      const [configResponse, connectionResponse] = await Promise.all([
+        fetch("/api/proxy/whatsapp/onboarding/config"),
+        fetch("/api/proxy/whatsapp/onboarding/connection"),
+      ]);
+      const configJson = await configResponse.json();
+      const connectionJson = await connectionResponse.json();
+      if (configResponse.ok) setConfig(configJson.data);
+      else setNotice(configJson.error?.message || "WhatsApp setup is not available yet.");
+      if (connectionResponse.ok) setConnection(connectionJson.data);
+    } catch { setNotice("Could not load WhatsApp connection status."); }
+  }, [user?.tenantId]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const completeSignup = useCallback(async () => {
+    const assets = signupAssets.current;
+    if (!assets.code || !assets.wabaId || !assets.phoneNumberId || completionStarted.current) return;
+    completionStarted.current = true;
+    setBusy(true);
+    setNotice("Verifying your WhatsApp account and connecting message delivery…");
+    try {
+      const response = await fetch("/api/proxy/whatsapp/onboarding/embedded-signup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: assets.code, wabaId: assets.wabaId, phoneNumberId: assets.phoneNumberId }),
+      });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error?.message || "WhatsApp connection could not be completed.");
+      setConnection(json.data);
+      setNotice("WhatsApp connected. Send a message from your phone to test the connection.");
+    } catch (error) {
+      completionStarted.current = false;
+      setNotice(error instanceof Error ? error.message : "WhatsApp connection failed.");
+    } finally { setBusy(false); }
+  }, []);
 
   useEffect(() => {
-    const fetchSettings = async () => {
-      const tenantId = user?.tenantId || tenant?.id;
-      if (!tenantId) {
-        showToast("Workspace context missing. Please re-login.", "warning", "Session Expired");
-        setLoading(false);
-        return;
-      }
-      try {
-        const res = await fetch(`/api/proxy/tenants/${tenantId}/support-config`);
-        const json = await res.json();
-        if (res.ok && json.data) {
-          form.reset({
-            supportPhoneNumberId: json.data.hasPhoneNumberId ? "******" : "",
-            supportAccessToken: json.data.hasSupportAccessToken ? "******" : "",
-            brandVoiceGuide: json.data.brandVoiceGuide || "",
-            industry: json.data.industry || "",
-          });
-        } else {
-          showToast(json.error?.message || "Failed to load settings", "error", "Load Error");
-        }
-      } catch (err: any) {
-        console.error("Error fetching settings:", err);
-        showToast(err.message || "Network error loading settings", "error", "Network Error");
-      } finally {
-        setLoading(false);
-      }
+    if (!config) return;
+    const scriptId = "facebook-jssdk";
+    const initSdk = () => {
+      window.FB?.init({ appId: config.appId, cookie: true, xfbml: false, version: config.graphApiVersion });
+      setSdkLoaded(Boolean(window.FB));
     };
-
-    fetchSettings();
-  }, [user?.tenantId, tenant?.id, form, showToast]);
-
-  const onSubmit = async (values: z.infer<typeof whatsAppConfigSchema>) => {
-    const tenantId = user?.tenantId || tenant?.id;
-    if (!tenantId) {
-      showToast("Workspace context missing. Please re-login.", "warning", "Session Expired");
-      return;
+    if (window.FB) initSdk();
+    else window.fbAsyncInit = initSdk;
+    if (!document.getElementById(scriptId)) {
+      const script = document.createElement("script");
+      script.id = scriptId; script.async = true; script.defer = true; script.crossOrigin = "anonymous";
+      script.src = "https://connect.facebook.net/en_US/sdk.js";
+      document.body.appendChild(script);
     }
-    setIsSaving(true);
-    try {
-      const payload: any = {
-        brandVoiceGuide: values.brandVoiceGuide,
-        industry: values.industry,
-      };
-      if (values.supportPhoneNumberId !== "******") {
-        payload.supportPhoneNumberId = values.supportPhoneNumberId;
-      }
-      if (values.supportAccessToken !== "******") {
-        payload.supportAccessToken = values.supportAccessToken;
-      }
+    const onMessage = (event: MessageEvent) => {
+      if (!event.origin.endsWith(".facebook.com") && event.origin !== "https://facebook.com") return;
+      if (event.data?.type !== "WA_EMBEDDED_SIGNUP" || event.data?.event !== "FINISH") return;
+      const data = event.data.data || {};
+      signupAssets.current.wabaId = String(data.waba_id || "");
+      signupAssets.current.phoneNumberId = String(data.phone_number_id || "");
+      void completeSignup();
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [config, completeSignup]);
 
-      const res = await fetch(`/api/proxy/tenants/${tenantId}/support-config`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const json = await res.json();
-      if (res.ok && json.success) {
-        showToast("WhatsApp settings saved successfully!", "success", "Settings Saved");
-      } else {
-        showToast(json.error?.message || "Failed to save settings", "error", "Save Error");
-      }
-    } catch (err: any) {
-      console.error("Error saving settings:", err);
-      showToast(err.message || "Network error saving settings", "error", "Network Error");
-    } finally {
-      setIsSaving(false);
-    }
+  const beginSignup = () => {
+    if (!config || !window.FB || !user || user.role !== "admin") return;
+    signupAssets.current = {};
+    completionStarted.current = false;
+    setBusy(true); setNotice("Complete the secure Meta setup window to connect your business number.");
+    window.FB.login((response) => {
+      const code = response.authResponse?.code;
+      if (!code) { setBusy(false); setNotice("WhatsApp setup was cancelled or not approved. You can try again."); return; }
+      signupAssets.current.code = code;
+      void completeSignup();
+    }, {
+      config_id: config.configId,
+      response_type: "code",
+      override_default_response_type: true,
+      extras: { setup: {} },
+    });
   };
 
-  return (
-    <div className="space-y-8 max-w-7xl mx-auto text-slate-100">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-white font-serif">WhatsApp Integration Settings</h1>
-        <p className="text-slate-400 text-sm mt-1">Configure your WhatsApp Business API credentials and support preferences.</p>
+  const disconnect = async () => {
+    if (!window.confirm("Disconnect this WhatsApp number from AI Workforce?")) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/proxy/whatsapp/onboarding/connection", { method: "DELETE" });
+      const json = await response.json();
+      if (!response.ok) throw new Error(json.error?.message || "Could not disconnect WhatsApp.");
+      setConnection({ connected: false }); setNotice("WhatsApp disconnected from this workspace.");
+    } catch (error) { setNotice(error instanceof Error ? error.message : "Could not disconnect WhatsApp."); }
+    finally { setBusy(false); }
+  };
+
+  const isAdmin = user?.role === "admin";
+  return <main className="mx-auto max-w-5xl space-y-8 text-slate-100">
+    <header>
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">Workspace connections</p>
+      <h1 className="mt-2 font-serif text-3xl font-bold text-white">Connect WhatsApp</h1>
+      <p className="mt-2 max-w-2xl text-sm text-slate-400">Use Meta’s secure setup to choose your WhatsApp Business account and number. AI Workforce never asks you to copy API tokens or Phone Number IDs.</p>
+    </header>
+    {notice && <div role="status" className="rounded-xl border border-cyan-900 bg-cyan-950/40 px-4 py-3 text-sm text-cyan-100">{notice}</div>}
+    <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div><h2 className="text-lg font-semibold text-white">WhatsApp Business Platform</h2><p className="mt-1 text-sm text-slate-400">Connect a number for customer support and AI replies.</p></div>
+        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${connection?.connected ? "bg-emerald-950 text-emerald-300" : "bg-slate-800 text-slate-400"}`}>{connection?.connected ? "Connected" : "Not connected"}</span>
       </div>
-
-      <Card className="border-slate-800 bg-slate-900/60 backdrop-blur text-white shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-lg font-bold text-white">WhatsApp Configuration</CardTitle>
-          <CardDescription className="text-xs text-slate-400">Enter your Meta App details to enable WhatsApp communication.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="supportPhoneNumberId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Phone Number ID</FormLabel>
-                    <FormControl>
-                      <Input placeholder="104928392019283" className="h-11 bg-slate-900/80 border-slate-800 text-white placeholder:text-slate-600 focus:border-cyan-500" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="supportAccessToken"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs font-semibold text-slate-400 uppercase tracking-wider">API Access Token</FormLabel>
-                    <FormControl>
-                      <Input type="password" placeholder="EAABwz..." className="h-11 bg-slate-900/80 border-slate-800 text-white placeholder:text-slate-600 focus:border-cyan-500" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="brandVoiceGuide"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Brand Voice Guide</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Friendly, helpful, professional" className="h-11 bg-slate-900/80 border-slate-800 text-white placeholder:text-slate-600 focus:border-cyan-500" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="industry"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Industry</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Ecommerce, SaaS" className="h-11 bg-slate-900/80 border-slate-800 text-white placeholder:text-slate-600 focus:border-cyan-500" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <div className="pt-4 flex justify-end">
-                <Button
-                  type="submit"
-                  disabled={loading || isSaving}
-                  className="w-fit px-6 h-10 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-semibold shadow-lg glow-cyan rounded-xl transition-all"
-                >
-                  {isSaving ? "Saving..." : "Save Settings"}
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-    </div>
-  );
+      {connection?.connected ? <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-5">
+        <div><p className="font-medium text-white">{connection.verifiedName || "WhatsApp Business"}</p><p className="text-sm text-slate-400">{connection.phoneNumber || "Connected number"}</p></div>
+        {isAdmin && <button onClick={() => void disconnect()} disabled={busy} className="rounded-lg border border-red-900 px-3 py-2 text-sm text-red-300 disabled:opacity-50">Disconnect</button>}
+        <div className="mt-4 flex flex-wrap gap-3">
+          {isAdmin && <button onClick={beginSignup} disabled={busy || !config || !sdkLoaded} className="rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-cyan-500 disabled:opacity-50">Reconnect with Meta</button>}
+          {connection.status === "reconnect_soon" && <p className="self-center text-xs text-amber-300">Meta access may expire soon. Reconnect to avoid message delivery stopping.</p>}
+        </div>
+      </div> : <div className="mt-6 space-y-4 border-t border-slate-800 pt-5">
+        <ol className="list-inside list-decimal space-y-2 text-sm text-slate-300"><li>Sign in to Meta and select your business.</li><li>Select or register the WhatsApp number you want to connect.</li><li>Approve access and return here; we will verify the connection.</li></ol>
+        <button onClick={beginSignup} disabled={!isAdmin || !config || !sdkLoaded || busy} className="rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Waiting for Meta…" : !sdkLoaded ? "Loading Meta…" : "Connect with Meta"}</button>
+        {!isAdmin && <p className="text-xs text-amber-300">Ask a workspace admin to connect WhatsApp.</p>}
+        {isAdmin && !config && <p className="text-xs text-amber-300">Meta Embedded Signup needs to be configured by the AI Workforce platform administrator first.</p>}
+      </div>}
+    </section>
+  </main>;
 }

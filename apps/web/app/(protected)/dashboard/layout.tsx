@@ -18,6 +18,7 @@ export default function DashboardLayout({
     { label: "Niche Templates", href: "/dashboard/templates", icon: "📦", badge: "Bundles" },
     { label: "Voice Logs", href: "/dashboard/voice-logs", icon: "🎙️", badge: "Vapi" },
     { label: "WhatsApp Settings", href: "/dashboard/settings/whatsapp", icon: "⚙️", badge: "Meta" },
+    { label: "Integrations", href: "/dashboard/integrations", icon: "🔌", badge: "Connect" },
     { label: "Support AI", href: "#", icon: "💬" },
     { label: "Sales CRM", href: "#", icon: "💼" },
     { label: "Operations", href: "#", icon: "⚙️" },
@@ -45,7 +46,7 @@ export default function DashboardLayout({
           {/* Navigation */}
           <nav className="space-y-1">
             {navItems.map((item) => {
-              const active = pathname === item.href;
+              const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`));
               return (
                 <Link
                   key={item.label}

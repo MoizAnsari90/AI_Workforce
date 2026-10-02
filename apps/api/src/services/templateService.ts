@@ -44,6 +44,27 @@ export class TemplateService {
           ],
         },
       },
+      {
+        name: 'Healthcare & Clinic Patient Receptionist Bundle',
+        category: 'HEALTHCARE',
+        description: 'Patient Inquiries + Appointment Scheduling + WhatsApp & Voice Confirmation + Doctor Slot Locking',
+        definition: {
+          nodes: [
+            { id: 'node_1', type: 'trigger', source: 'whatsapp_or_web_chat' },
+            { id: 'node_2', type: 'agent', agentName: 'Clinic Receptionist Agent', role: 'healthcare_receptionist' },
+            { id: 'node_3', type: 'action', tool: 'calendar_booking_and_slot_locking', requiresApproval: false },
+            { id: 'node_4', type: 'voice', provider: 'VAPI', action: 'appointment_voice_confirmation' },
+          ],
+          transitions: [
+            { from: 'node_1', to: 'node_2' },
+            { from: 'node_2', to: 'node_3' },
+            { from: 'node_3', to: 'node_4' },
+          ],
+          guardrails: {
+            medicalDisclaimer: 'CRITICAL GUARDRAIL: Do NOT provide medical diagnosis, prescription advice, or handle medical emergencies. Instruct patients experiencing emergencies to call emergency services immediately.',
+          },
+        },
+      },
     ];
 
     for (const t of templates) {
@@ -63,7 +84,7 @@ export class TemplateService {
       });
     }
 
-    logger.info('Default niche workflow templates seeded successfully');
+    logger.info('Default niche workflow templates (including Healthcare) seeded successfully');
   }
 
   static async listTemplates() {
@@ -90,14 +111,28 @@ export class TemplateService {
       },
     });
 
-    // Create a default agent associated with this template
+    const department = template.category === 'HEALTHCARE' ? 'healthcare' : template.category === 'ecommerce' ? 'operations' : 'sales';
+
+    // Create a default agent associated with this template, including healthcare guardrail if applicable
     const agent = await prisma.agent.create({
       data: {
         tenantId,
         name: `${template.name} Worker`,
-        department: template.category === 'ecommerce' ? 'operations' : 'sales',
+        department,
       },
     });
+
+    // If healthcare template, create initial agent version with medical guardrail prompt
+    if (template.category === 'HEALTHCARE') {
+      await prisma.agentVersion.create({
+        data: {
+          agentId: agent.id,
+          systemPrompt: 'You are a professional Clinic Receptionist Agent. Assist patients with appointment scheduling and slot locking. CRITICAL GUARDRAIL: Never provide medical diagnosis or medical advice. Direct emergency patients to call 911.',
+          temperature: 0.1,
+          toolAllowlist: ['calendar_booking_and_slot_locking'],
+        },
+      });
+    }
 
     await recordAuditLog({
       tenantId,
@@ -106,7 +141,7 @@ export class TemplateService {
       operation: 'deploy_workflow_template',
       entityType: 'workflow',
       entityId: workflow.id,
-      newValue: { templateName: template.name, agentId: agent.id },
+      newValue: { templateName: template.name, agentId: agent.id, category: template.category },
     });
 
     logger.info('Niche workflow template deployed to tenant', { tenantId, templateId, workflowId: workflow.id });

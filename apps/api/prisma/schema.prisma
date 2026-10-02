@@ -150,6 +150,9 @@ model Tenant {
   tools            Tool[]
   voiceSessions    VoiceSession[]
   externalCredentials ExternalIntegrationCredential[]
+  appointmentSlots AppointmentSlot[]
+  patientIntakeRecords PatientIntakeRecord[]
+  idempotencyLogs IdempotencyLog[]
 
   @@map("tenants")
 }
@@ -1393,6 +1396,7 @@ model ExternalIntegrationCredential {
   id              String   @id @default(uuid())
   tenantId        String   @map("tenant_id")
   provider        String   // 'shopify', 'quickbooks', 'crm', 'vapi', 'retell'
+  externalAccountId String? @map("external_account_id")
   encryptedConfig Json     @map("encrypted_config") // encrypted API keys / tokens
   isActive        Boolean  @default(true) @map("is_active")
   createdAt       DateTime @default(now()) @map("created_at")
@@ -1402,5 +1406,69 @@ model ExternalIntegrationCredential {
 
   @@unique([tenantId, provider])
   @@index([tenantId])
+  @@unique([provider, externalAccountId])
   @@map("external_integration_credentials")
+}
+
+model AppointmentSlot {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  doctorName     String   @map("doctor_name")
+  startTime      DateTime @map("start_time")
+  endTime        DateTime @map("end_time")
+  status         String   @default("available") // available, locked, booked, cancelled
+  patientId      String?  @map("patient_id")
+  patientName    String?  @map("patient_name")
+  idempotencyKey String?  @unique @map("idempotency_key")
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, status, startTime])
+  @@map("appointment_slots")
+}
+
+model PatientIntakeRecord {
+  id                       String   @id @default(uuid())
+  tenantId                 String   @map("tenant_id")
+  patientName              String   @map("patient_name")
+  contactPhone             String   @map("contact_phone")
+  email                    String?
+  reasonForVisit           String   @map("reason_for_visit")
+  encryptedMedicalHistory  String?  @map("encrypted_medical_history")
+  encryptionMetadata       Json?    @map("encryption_metadata")
+  status                   String   @default("pending") // pending, intake_completed, scheduled, escalated
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("patient_intake_records")
+}
+
+model IdempotencyLog {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  idempotencyKey   String    @map("idempotency_key")
+  actionType       String    @map("action_type")
+  targetResource   String    @map("target_resource")
+  requestHash      String    @map("request_hash")
+  status           String    @default("pending") // pending, succeeded, failed
+  providerRef      String?   @map("provider_ref")
+  responseSnapshot Json?     @map("response_snapshot")
+  attemptCount     Int       @default(1) @map("attempt_count")
+  errorMessage     String?   @map("error_message")
+  startedAt        DateTime  @default(now()) @map("started_at")
+  completedAt      DateTime? @map("completed_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId])
+  @@index([status])
+  @@map("idempotency_logs")
 }

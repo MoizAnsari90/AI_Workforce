@@ -130,16 +130,17 @@ export async function humanReply(req: Request, res: Response, next: NextFunction
     const { recordAuditLog } = await import('../services/auditService');
     const { emitToTenant } = await import('../lib/socket');
 
-    // Fetch business creds for this tenant
-    const business = await prisma.business.findFirst({ where: { tenantId } });
+    // Resolve the tenant's encrypted Embedded Signup credentials (or legacy settings).
+    const { IntegrationService } = await import('../services/integrationService');
+    const { accessToken, phoneNumberId } = await IntegrationService.getWhatsAppCredential(tenantId);
 
     // Send via WhatsApp
     const { messageId: sentMessageId } = await ws.sendMessage(
       tenantId,
       conversation.customerPhone,
       message,
-      business?.supportAccessToken ?? undefined,
-      business?.supportPhoneNumberId ?? undefined,
+      accessToken,
+      phoneNumberId,
     );
 
     // Store outbound message

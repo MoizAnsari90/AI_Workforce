@@ -7,17 +7,37 @@ import { whatsappService, ParsedWhatsAppMessage } from './whatsappService';
 import { conversationService } from './conversationService';
 import { recordAuditLog } from './auditService';
 import { emitToTenant } from '../lib/socket';
+import { answerWorkforceStockQuestion } from './workforceStockService';
 
 export interface SupportAgentProcessResult {
   conversationId: string;
   messageStored: boolean;
   aiActive: boolean;
-  responseSource: 'faq' | 'rag' | 'llm' | 'fallback' | 'human_inbox' | 'skipped';
+  responseSource: 'faq' | 'rag' | 'llm' | 'fallback' | 'shopify' | 'woocommerce' | 'clarification' | 'human_inbox' | 'skipped';
   escalated: boolean;
   sentMessageId?: string;
 }
 
 export const supportAgentService = {
+  /**
+   * Convenience wrapper for script testing
+   */
+  async processMessage(params: {
+    tenantId: string;
+    userMessage: string;
+    fromPhone?: string;
+    customerName?: string;
+  }): Promise<SupportAgentProcessResult> {
+    const message: ParsedWhatsAppMessage = {
+      metaMessageId: 'wamid.test.' + Date.now(),
+      fromPhone: params.fromPhone || '923001234567',
+      customerName: params.customerName || 'Test User',
+      text: params.userMessage,
+      timestamp: String(Math.floor(Date.now() / 1000)),
+    };
+    return this.processInboundMessage(params.tenantId, message);
+  },
+
   /**
    * Main entry point called by the BullMQ worker for every inbound WhatsApp message.
    * Orchestrates: conversation upsert → message store → FAQ → RAG → LLM → send → audit.
@@ -100,24 +120,27 @@ export const supportAgentService = {
       textContent: m.textContent,
     }));
 
-    // 8. FAQ matching
-    const faqMatch = await faqService.matchFAQ(tenantId, message.text);
+    // 8. Use verified live commerce data for SKU stock questions on WhatsApp.
+    const stockAnswer = await answerWorkforceStockQuestion(tenantId, message.text);
 
-    // 9. RAG retrieval (only if no strong FAQ hit)
-    const ragChunks =
-      !faqMatch || faqMatch.similarityScore < 0.95
+    // 9. For other questions, continue through FAQ, RAG and the support model.
+    let result: { responseText: string; source: SupportAgentProcessResult['responseSource']; confidence: number; shouldEscalate: boolean; escalationReason?: string };
+    if (stockAnswer) {
+      result = { responseText: stockAnswer.answer, source: stockAnswer.source as SupportAgentProcessResult['responseSource'], confidence: 1, shouldEscalate: false };
+    } else {
+      const faqMatch = await faqService.matchFAQ(tenantId, message.text);
+      const ragChunks = !faqMatch || faqMatch.similarityScore < 0.95
         ? await ragService.retrieveChunks(tenantId, message.text, 3)
         : [];
-
-    // 10. Generate AI response
-    const result = await llmService.generateSupportResponse({
-      tenantId,
-      userMessage: message.text,
-      conversationHistory,
-      faqMatch,
-      ragChunks,
-      brandVoiceGuide: business?.brandVoiceGuide ?? undefined,
-    });
+      result = await llmService.generateSupportResponse({
+        tenantId,
+        userMessage: message.text,
+        conversationHistory,
+        faqMatch,
+        ragChunks,
+        brandVoiceGuide: business?.brandVoiceGuide ?? undefined,
+      });
+    }
 
     // 11. If escalation triggered, pause AI and notify human inbox
     if (result.shouldEscalate) {
@@ -145,8 +168,8 @@ export const supportAgentService = {
     }
 
     // 12. Send response via WhatsApp
-    const accessToken = business?.supportAccessToken ?? undefined;
-    const phoneNumberId = business?.supportPhoneNumberId ?? undefined;
+    const { IntegrationService } = await import('./integrationService');
+    const { accessToken, phoneNumberId } = await IntegrationService.getWhatsAppCredential(tenantId);
 
     const { messageId: sentMessageId } = await whatsappService.sendMessage(
       tenantId,

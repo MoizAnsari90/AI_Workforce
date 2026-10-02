@@ -37,8 +37,10 @@ describe('Phase 10 Integration Tests', () => {
     (prisma.message.count as any).mockResolvedValue(100);
     (prisma.auditLog.count as any).mockResolvedValue(10);
     const metrics = await analyticsService.getROIMetrics('t1');
-    expect(metrics.hoursSaved).toBe(5);
-    expect(metrics.resolutionRate).toBe('90.00');
+    expect(metrics.automatedTasks).toBe(10);
+    expect(metrics.aiRepliesPer100Inbound).toBe(100);
+    expect(metrics.hoursSaved).toBeNull();
+    expect(metrics.totalCostSaved).toBeNull();
   });
 
   it('Export: should export audit logs', async () => {
