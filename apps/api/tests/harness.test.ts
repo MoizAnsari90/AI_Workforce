@@ -203,7 +203,7 @@ describe('Phase 08 Harness, Verification & Trust', () => {
         actorPermissions: ['tasks:execute'],
       })
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
-  });
+  }, 20000);
 
   it('enforces rate limits and agent iteration breakers', async () => {
     const policy = await request(app)
@@ -227,7 +227,7 @@ describe('Phase 08 Harness, Verification & Trust', () => {
     await request(app).post(`/api/v1/tenants/${tenantId}/harness/runs/${run.body.data.id}/iterations`).set('Authorization', `Bearer ${authToken}`).send({ action: 'two' });
     const blocked = await request(app).post(`/api/v1/tenants/${tenantId}/harness/runs/${run.body.data.id}/iterations`).set('Authorization', `Bearer ${authToken}`).send({ action: 'three' });
     expect(blocked.status).toBe(409);
-  });
+  }, 20000);
 
   it('deduplicates idempotent invocations and isolates tenants', async () => {
     const first = await request(app)

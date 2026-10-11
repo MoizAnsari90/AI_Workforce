@@ -13,6 +13,11 @@ vi.mock('../src/lib/prisma', () => ({ prisma: {
   tenant: { findFirst: vi.fn() }, inventoryRecord: { count: vi.fn() },
   stockAlert: { count: vi.fn() }, approvalRequest: { count: vi.fn() },
   task: { count: vi.fn() }, message: { count: vi.fn() },
+  businessProfile: { findUnique: vi.fn() },
+} }));
+vi.mock('../src/services/idempotencyService', () => ({ IdempotencyService: {
+  generateIdempotencyKey: vi.fn(async () => ({ key: 'request-key', idempotencyLog: null })),
+  createPendingLog: vi.fn(), checkIdempotency: vi.fn(), logSuccess: vi.fn(), logFailure: vi.fn(),
 } }));
 import { prisma } from '../src/lib/prisma';
 import { operationsRouter } from '../src/routes/operationsRoutes';
@@ -23,6 +28,7 @@ app.use(express.json(), operationsRouter);
 app.use((err: any, _req: any, res: any, _next: any) => res.status(err.statusCode || 500).json({ error: { code: err.code, message: err.message } }));
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(prisma.businessProfile.findUnique).mockResolvedValue(null);
   vi.mocked(prisma.tenant.findFirst).mockResolvedValue({ name: 'Workspace' } as any);
   for (const model of [prisma.inventoryRecord, prisma.stockAlert, prisma.approvalRequest, prisma.task]) vi.mocked(model.count).mockResolvedValue(0);
   vi.mocked(prisma.message.count).mockImplementation(async (args: any) => args.where.direction === 'outbound' ? 2 : 15);

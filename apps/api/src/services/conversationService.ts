@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { logger } from '../utils/logger';
+import { ValidationError } from '../errors/AppError';
 
 export interface ConversationWithMessages {
   id: string;
@@ -22,6 +23,7 @@ export interface ConversationWithMessages {
     metaMessageId: string | null;
     createdAt: Date;
   }>;
+  olderMessagesCursor?: string | null;
 }
 
 export const conversationService = {
@@ -51,7 +53,7 @@ export const conversationService = {
       create: payload,
       include: {
         messages: {
-          orderBy: { createdAt: 'asc' },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
           take: 20,
         },
       },
@@ -65,7 +67,7 @@ export const conversationService = {
       });
     }
 
-    return conversation;
+    return { ...conversation, messages: conversation.messages.reverse() };
   },
 
   /**
@@ -198,25 +200,36 @@ export const conversationService = {
   async findByIdForTenant(
     tenantId: string,
     conversationId: string,
+    before?: string,
   ): Promise<ConversationWithMessages | null> {
-    return prisma.conversation.findFirst({
+    const cursor = before ? await prisma.message.findFirst({ where: { id: before, tenantId, conversationId } }) : null;
+    if (before && !cursor) throw new ValidationError('Invalid message history cursor');
+    const conversation = await prisma.conversation.findFirst({
       where: { id: conversationId, tenantId },
       include: {
-        messages: { orderBy: { createdAt: 'asc' }, take: 50 },
+        messages: {
+          where: { tenantId, ...(cursor ? { OR: [{ createdAt: { lt: cursor.createdAt } }, { createdAt: cursor.createdAt, id: { lt: cursor.id } }] } : {}) },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 51,
+        },
       },
     });
+    if (!conversation) return null;
+    const hasOlder = conversation.messages.length > 50;
+    const messages = conversation.messages.slice(0, 50).reverse();
+    return { ...conversation, messages, olderMessagesCursor: hasOlder ? messages[0].id : null };
   },
 
   /**
    * List conversations for a tenant (human inbox).
    */
-  async listForTenant(tenantId: string, aiActiveFilter?: boolean) {
+  async listForTenant(tenantId: string, aiActiveFilter?: boolean, page = 0) {
     return prisma.conversation.findMany({
       where: {
         tenantId,
         ...(aiActiveFilter !== undefined ? { aiActive: aiActiveFilter } : {}),
       },
-      orderBy: { lastMessageAt: 'desc' },
+      orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+      skip: page * 50,
       take: 50,
     });
   },

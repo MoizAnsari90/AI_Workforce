@@ -25,3 +25,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local migration metadata backups (never commit database snapshots)
+.local/migration-repairs/

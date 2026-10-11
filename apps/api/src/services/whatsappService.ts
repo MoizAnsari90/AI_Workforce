@@ -1,6 +1,15 @@
 import crypto from 'node:crypto';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { AppError, ServiceUnavailableError } from '../errors/AppError';
+
+export class WhatsAppMessageRejectedError extends AppError {
+  constructor() { super('Meta rejected the message. Check the WhatsApp connection and messaging window before trying again.', 422, 'REPLY_REJECTED'); }
+}
+
+export class WhatsAppDeliveryUncertainError extends ServiceUnavailableError {
+  constructor() { super('WhatsApp acceptance is unknown. Check Meta activity before retrying.'); }
+}
 
 export interface ParsedWhatsAppMessage {
   metaMessageId: string;
@@ -126,20 +135,19 @@ export const whatsappService = {
       resolvedToken ||= tenantCredential.accessToken;
       resolvedPhoneNumberId ||= tenantCredential.phoneNumberId;
     }
-    if (env.NODE_ENV !== 'production') {
-      resolvedToken ||= env.META_ACCESS_TOKEN;
-      resolvedPhoneNumberId ||= env.META_PHONE_NUMBER_ID;
-    }
-    if (env.NODE_ENV === 'production' && (!resolvedToken || !resolvedPhoneNumberId)) {
+    if (env.NODE_ENV !== 'test' && (!resolvedToken || !resolvedPhoneNumberId)) {
       throw new Error('This workspace has no connected WhatsApp Business number');
     }
 
     // If live credentials exist, send to Meta Cloud API (in dev/prod when credentials are configured, skipping only in automated test suite)
     if (resolvedToken && resolvedPhoneNumberId && env.NODE_ENV !== 'test') {
+      let explicitlyRejected = false;
       try {
         const url = `https://graph.facebook.com/${env.META_GRAPH_API_VERSION || 'v26.0'}/${resolvedPhoneNumberId}/messages`;
         const response = await fetch(url, {
           method: 'POST',
+          redirect: 'error',
+          signal: AbortSignal.timeout(15000),
           headers: {
             'Authorization': `Bearer ${resolvedToken}`,
             'Content-Type': 'application/json',
@@ -152,13 +160,15 @@ export const whatsappService = {
           }),
         });
 
-        const data = await response.json() as { messages?: Array<{ id?: string }>; error?: unknown };
         if (!response.ok) {
-          throw new Error(`Meta API error: ${JSON.stringify(data)}`);
+          explicitlyRejected = response.status < 500;
+          throw new Error('Meta rejected the WhatsApp message. Check the number, access and messaging window.');
         }
+        const data = await response.json() as { messages?: Array<{ id?: string }>; error?: unknown };
 
-        const realMessageId = (data.messages?.[0]?.id) || mockMessageId;
-        logger.info('WhatsApp message delivered via Meta Cloud API', {
+        const realMessageId = data.messages?.[0]?.id;
+        if (typeof realMessageId !== 'string' || !realMessageId.trim()) throw new Error('WhatsApp acceptance is unknown. Check Meta activity before retrying.');
+        logger.info('WhatsApp message accepted by Meta Cloud API', {
           tenantId,
           toPhone,
           messageId: realMessageId,
@@ -171,11 +181,12 @@ export const whatsappService = {
           toPhone,
           tenantId,
         });
-        throw error;
+        if (explicitlyRejected) throw new WhatsAppMessageRejectedError();
+        throw new WhatsAppDeliveryUncertainError();
       }
     }
 
-    // Default: Mock dispatch (for test/dev environments)
+    // Simulated dispatch is restricted to the automated test environment.
     const record: SentMessageRecord = {
       tenantId,
       toPhone,

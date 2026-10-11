@@ -5,12 +5,18 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import { env } from '../config/env';
 import { IntegrationService } from '../services/integrationService';
 import { prisma } from '../lib/prisma';
+import { whatsappConnectionState } from '../services/whatsappConnectionState';
+import { getWhatsAppSetupTestStatus, hasRecentWhatsAppDeliveryProof, startWhatsAppSetupTest } from '../services/whatsappSetupTestService';
+
+function signupConfigured() {
+  return !!(env.META_APP_ID && env.META_APP_SECRET && env.META_EMBEDDED_SIGNUP_CONFIG_ID && env.META_VERIFY_TOKEN && process.env.INTEGRATION_ENCRYPTION_KEY && process.env.INTEGRATION_ENCRYPTION_KEY.length >= 32);
+}
 
 export const whatsappOnboardingRouter = Router();
 whatsappOnboardingRouter.use(authenticate, requireRole('admin'));
 
 whatsappOnboardingRouter.get('/config', (_req, res) => {
-  if (!env.META_APP_ID || !env.META_EMBEDDED_SIGNUP_CONFIG_ID) {
+  if (!signupConfigured()) {
     return res.status(503).json({ success: false, error: { code: 'INTEGRATION_NOT_CONFIGURED', message: 'WhatsApp self-serve setup is not configured yet.' } });
   }
   return res.json({ success: true, data: { appId: env.META_APP_ID, configId: env.META_EMBEDDED_SIGNUP_CONFIG_ID, graphApiVersion: env.META_GRAPH_API_VERSION } });
@@ -19,14 +25,66 @@ whatsappOnboardingRouter.get('/config', (_req, res) => {
 whatsappOnboardingRouter.get('/connection', async (req, res, next) => {
   try {
     const connection = await IntegrationService.getCredential(req.user!.tenantId, 'whatsapp');
-    if (!connection) return res.json({ success: true, data: { connected: false } });
+    const state = whatsappConnectionState(connection);
+    const verificationTest = state.connected ? await getWhatsAppSetupTestStatus(req.user!.tenantId) : null;
+    const registration = connection?.cloudRegistration as { status?: string; completedAt?: string } | undefined;
     return res.json({ success: true, data: {
-      connected: true,
-      phoneNumber: typeof connection.displayPhoneNumber === 'string' ? connection.displayPhoneNumber : null,
-      verifiedName: typeof connection.verifiedName === 'string' ? connection.verifiedName : null,
-      expiresAt: typeof connection.expiresAt === 'string' ? connection.expiresAt : null,
-      status: typeof connection.expiresAt === 'string' && Date.parse(connection.expiresAt) < Date.now() + 7 * 86_400_000 ? 'reconnect_soon' : 'ready',
+      ...state,
+      deliveryVerified: state.connected ? await hasRecentWhatsAppDeliveryProof(req.user!.tenantId) : false,
+      registrationStatus: registration?.status ?? 'required',
+      registeredAt: registration?.completedAt ?? null,
+      verificationTest,
     } });
+  } catch (error) { next(error); }
+});
+
+whatsappOnboardingRouter.post('/connection/registration', async (req, res, next) => {
+  try {
+    const input = z.object({
+      mode: z.enum(['register', 'already_registered']),
+      pin: z.string().regex(/^\d{6}$/).optional(),
+      confirmCloudApiNumber: z.literal(true),
+    }).strict().superRefine((value, context) => {
+      if (value.mode === 'register' && !value.pin) context.addIssue({ code: 'custom', path: ['pin'], message: 'Enter a six-digit two-step verification PIN.' });
+      if (value.mode === 'already_registered' && value.pin) context.addIssue({ code: 'custom', path: ['pin'], message: 'A PIN is not needed for a number that is already registered.' });
+    }).parse(req.body);
+    const connection = await IntegrationService.getCredential(req.user!.tenantId, 'whatsapp');
+    if (typeof connection?.accessToken !== 'string' || typeof connection.phoneNumberId !== 'string') {
+      return res.status(409).json({ success: false, error: { code: 'WHATSAPP_NOT_CONNECTED', message: 'Connect the WhatsApp number with Meta first.' } });
+    }
+    let status: 'registered' | 'owner_confirmed' = 'owner_confirmed';
+    if (input.mode === 'register') {
+      let response: Response;
+      try {
+        response = await fetch(`https://graph.facebook.com/${env.META_GRAPH_API_VERSION}/${connection.phoneNumberId}/register`, {
+          method: 'POST', redirect: 'error', signal: AbortSignal.timeout(20_000),
+          headers: { Authorization: `Bearer ${connection.accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messaging_product: 'whatsapp', pin: input.pin }),
+        });
+      } catch {
+        return res.status(503).json({ success: false, error: { code: 'WHATSAPP_REGISTRATION_UNKNOWN', message: 'Meta did not confirm number registration. Check WhatsApp Manager before trying again.' } });
+      }
+      const body = await response.json().catch(() => null) as { success?: unknown } | null;
+      if (!response.ok || (body?.success !== true && body?.success !== 'true')) {
+        return res.status(400).json({ success: false, error: { code: 'WHATSAPP_REGISTRATION_FAILED', message: 'Meta could not register this number. Check its Cloud API status and two-step PIN in WhatsApp Manager.' } });
+      }
+      status = 'registered';
+    }
+    const current = await IntegrationService.getCredential(req.user!.tenantId, 'whatsapp');
+    if (!current || current.phoneNumberId !== connection.phoneNumberId) {
+      return res.status(409).json({ success: false, error: { code: 'WHATSAPP_CONNECTION_CHANGED', message: 'The WhatsApp connection changed. Refresh this page and try again.' } });
+    }
+    await IntegrationService.storeCredential({ tenantId: req.user!.tenantId, provider: 'whatsapp', userId: req.user!.userId,
+      config: { ...current, cloudRegistration: { status, completedAt: new Date().toISOString() } } });
+    return res.json({ success: true, data: { status, message: status === 'registered' ? 'Meta confirmed Cloud API registration.' : 'Saved your confirmation. The delivery test will verify that the number can send and receive.' } });
+  } catch (error) { next(error); }
+});
+
+whatsappOnboardingRouter.post('/connection/test', async (req, res, next) => {
+  try {
+    z.object({ confirmUseOfTestPhone: z.literal(true) }).strict().parse(req.body);
+    const test = await startWhatsAppSetupTest(req.user!.tenantId, req.user!.userId);
+    return res.status(201).json({ success: true, data: test });
   } catch (error) { next(error); }
 });
 
@@ -37,12 +95,12 @@ whatsappOnboardingRouter.post('/embedded-signup', async (req, res, next) => {
       wabaId: z.string().regex(/^\d{5,30}$/),
       phoneNumberId: z.string().regex(/^\d{5,30}$/),
     }).strict().parse(req.body);
-    if (!env.META_APP_ID || !env.META_APP_SECRET || !env.META_EMBEDDED_SIGNUP_CONFIG_ID || !process.env.INTEGRATION_ENCRYPTION_KEY || process.env.INTEGRATION_ENCRYPTION_KEY.length < 32) {
+    if (!signupConfigured()) {
       return res.status(503).json({ success: false, error: { code: 'INTEGRATION_NOT_CONFIGURED', message: 'WhatsApp self-serve setup is not configured yet.' } });
     }
     const graph = `https://graph.facebook.com/${env.META_GRAPH_API_VERSION}`;
     const tokenUrl = new URL(`${graph}/oauth/access_token`);
-    tokenUrl.search = new URLSearchParams({ client_id: env.META_APP_ID, client_secret: env.META_APP_SECRET, code: input.code }).toString();
+    tokenUrl.search = new URLSearchParams({ client_id: env.META_APP_ID!, client_secret: env.META_APP_SECRET!, code: input.code }).toString();
     const tokenResponse = await fetch(tokenUrl, { redirect: 'error', signal: AbortSignal.timeout(15000) });
     const tokenBody = await tokenResponse.json().catch(() => null) as any;
     const accessToken = tokenBody?.access_token;
@@ -95,20 +153,15 @@ whatsappOnboardingRouter.post('/embedded-signup', async (req, res, next) => {
         connectedAt: new Date().toISOString(),
       },
     });
-    return res.json({ success: true, data: { connected: true, phoneNumber: number.display_phone_number ?? null, verifiedName: number.verified_name ?? null, status: 'ready' } });
+    return res.json({ success: true, data: { connected: true, phoneNumber: number.display_phone_number ?? null, verifiedName: number.verified_name ?? null, status: 'verification_required', deliveryVerified: false } });
   } catch (error) { next(error); }
 });
 
 whatsappOnboardingRouter.delete('/connection', async (req, res, next) => {
   try {
-    const connection = await IntegrationService.getCredential(req.user!.tenantId, 'whatsapp');
-    if (typeof connection?.accessToken === 'string' && typeof connection.wabaId === 'string') {
-      try {
-        await fetch(`https://graph.facebook.com/${env.META_GRAPH_API_VERSION}/${connection.wabaId}/subscribed_apps?access_token=${encodeURIComponent(connection.accessToken)}`, {
-          method: 'DELETE', redirect: 'error', signal: AbortSignal.timeout(10000),
-        });
-      } catch { /* Remove tenant credentials even when Meta is temporarily unavailable. */ }
-    }
+    // Subscription is WABA-wide. Removing it here would stop other workspace
+    // numbers on that WABA. The central webhook ignores disconnected numbers.
+    await prisma.business.updateMany({ where: { tenantId: req.user!.tenantId }, data: { supportAccessToken: null, supportPhoneNumberId: null } });
     const disconnected = await IntegrationService.deleteCredential(req.user!.tenantId, 'whatsapp', req.user!.userId);
     return res.json({ success: true, data: { disconnected } });
   } catch (error) { next(error); }

@@ -7,6 +7,7 @@ import { queueService } from '../src/services/queueService';
 import { supportAgentService } from '../src/services/supportAgentService';
 import { conversationService } from '../src/services/conversationService';
 import { ShopifyTool } from '../src/tools/shopifyTool';
+import * as whatsappSetupTestService from '../src/services/whatsappSetupTestService';
 
 // ---------------------------------------------------------------------------
 // Phase 2 — Support AI Employee: AI/Human Handoff Tests
@@ -22,6 +23,11 @@ const customerPhone = '+15550000001';
 const webhookCustomerPhone = '+15550000004';
 
 beforeAll(async () => {
+  // These fixtures exercise the free development flow; paid plan checks have
+  // dedicated coverage in subscriptions.test.ts.
+  vi.stubEnv('BILLING_MODE', 'test');
+  vi.stubEnv('BILLING_ENFORCEMENT', 'false');
+  vi.spyOn(whatsappSetupTestService, 'hasRecentWhatsAppDeliveryProof').mockResolvedValue(true);
   // Register a tenant for these tests
   const res = await request(app)
     .post('/api/v1/auth/register')
@@ -33,6 +39,10 @@ beforeAll(async () => {
 
   tenantId = res.body.data.tenant.id;
   authToken = res.body.data.token;
+  await prisma.agent.create({ data: { tenantId, department: 'support', name: 'Support fixture', isActive: true } });
+
+  // A signed webhook still has to target this workspace's connected number.
+  await prisma.business.create({ data: { tenantId, name: 'Support test business', supportPhoneNumberId: 'phone_123' } });
 
   // Seed an FAQ
   await prisma.fAQ.create({
@@ -53,6 +63,7 @@ afterAll(async () => {
   await prisma.conversation.deleteMany({ where: { tenantId } });
   await prisma.fAQ.deleteMany({ where: { tenantId } });
   await prisma.auditLog.deleteMany({ where: { tenantId } });
+  vi.unstubAllEnvs();
 });
 
 describe('Webhook Verification', () => {
@@ -155,6 +166,13 @@ describe('Webhook Fast Acknowledgement', () => {
 });
 
 describe('Support Agent Message Processing', () => {
+  it('routes new customer messages to the human inbox when the support agent is paused', async () => {
+    await prisma.agent.updateMany({ where: { tenantId, department: 'support' }, data: { isActive: false } });
+    whatsappService.clearMockSentMessages();
+    const result = await supportAgentService.processInboundMessage(tenantId, { metaMessageId: `wamid.paused.${Date.now()}`, fromPhone: customerPhone, customerName: 'Paused Agent Customer', text: 'What are your opening hours?', timestamp: new Date().toISOString() });
+    expect(result).toMatchObject({ aiActive: false, responseSource: 'human_inbox', escalated: false }); expect(whatsappService.getSentMessages(tenantId)).toHaveLength(0);
+    await prisma.agent.updateMany({ where: { tenantId, department: 'support' }, data: { isActive: true } });
+  });
   it('processes FAQ match and sends a response', async () => {
     whatsappService.clearMockSentMessages();
 
@@ -321,7 +339,7 @@ describe('Human Reply', () => {
     const res = await request(app)
       .post(`/api/v1/tenants/${tenantId}/conversations/${conversationId}/reply`)
       .set('Authorization', `Bearer ${authToken}`)
-      .send({ message: 'Hi there! A human agent is here to help you.' });
+      .send({ message: 'Hi there! A human agent is here to help you.', requestId: '53879d35-6f53-43ae-a3d1-891b039c4c05' });
 
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);

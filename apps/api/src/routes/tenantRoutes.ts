@@ -7,6 +7,8 @@ import { enforceTenantIsolation } from '../middleware/tenantIsolationMiddleware'
 import { prisma } from '../lib/prisma';
 import { recordAuditLog } from '../services/auditService';
 import { TemplateService } from '../services/templateService';
+import { ConflictError } from '../errors/AppError';
+import { getWorkspaceReadiness, readinessIndustryForAgent } from '../services/workspaceReadinessService';
 
 export const tenantRouter = Router();
 
@@ -145,6 +147,14 @@ tenantRouter.get('/templates', authenticate, async (req: Request, res: Response,
   }
 });
 
+// A tenant with no deployed agents is guided through first-time setup.
+tenantRouter.get('/tenants/:tenantId/onboarding-status', authenticate, enforceTenantIsolation, async (req, res, next) => {
+  try {
+    const readiness = await getWorkspaceReadiness(req.params.tenantId);
+    return res.status(200).json({ success: true, data: readiness });
+  } catch (error) { next(error); }
+});
+
 // POST /api/v1/tenants/:tenantId/templates/deploy — deploy niche template
 tenantRouter.post(
   '/tenants/:tenantId/templates/deploy',
@@ -154,11 +164,20 @@ tenantRouter.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { tenantId } = req.params;
-      const { templateId } = req.body;
+      const { templateId, activate } = req.body;
       if (!templateId) {
         return res.status(400).json({ success: false, error: { message: 'templateId is required' } });
       }
-      const deployment = await TemplateService.deployTemplate(tenantId, templateId, req.user!.userId);
+      if (activate !== false) {
+        const template = await prisma.workflowTemplate.findUnique({ where: { id: templateId }, select: { category: true } });
+        const category = template?.category.toLowerCase();
+        const industry = category === 'healthcare' ? 'healthcare' : category === 'real_estate' ? 'real_estate' : category === 'ecommerce' ? 'ecommerce' : null;
+        if (industry) {
+          const readiness = await getWorkspaceReadiness(tenantId, industry);
+          if (!readiness.readyToActivate) throw new ConflictError('This bundle must be set up before it can start. It has been left inactive.', { nextStep: readiness.nextStep, steps: readiness.steps.filter(step => step.state === 'required') });
+        }
+      }
+      const deployment = await TemplateService.deployTemplate(tenantId, templateId, req.user!.userId, activate !== false);
       return res.status(201).json({ success: true, data: deployment });
     } catch (error) {
       next(error);
@@ -198,6 +217,15 @@ tenantRouter.patch(
       const agent = await prisma.agent.findFirst({ where: { id: agentId, tenantId } });
       if (!agent) {
         return res.status(404).json({ success: false, error: { message: 'Agent not found' } });
+      }
+
+      if (!agent.isActive) {
+        await (await import('../services/subscriptionService')).assertSubscription(tenantId);
+        const industry = readinessIndustryForAgent(agent);
+        if (industry) {
+          const readiness = await getWorkspaceReadiness(tenantId, industry);
+          if (!readiness.readyToActivate) throw new ConflictError('Complete the required setup steps before activating this AI bundle.', { nextStep: readiness.nextStep, steps: readiness.steps.filter(step => step.state === 'required') });
+        }
       }
 
       const updated = await prisma.agent.update({

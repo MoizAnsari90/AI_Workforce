@@ -27,7 +27,15 @@ shopifyOAuthRouter.get('/start', authenticate, requireRole('admin'), async (req,
       tenantId: req.user!.tenantId, userId: req.user!.userId, shop }, env.JWT_SECRET, { expiresIn: '10m' });
     const authorizationUrl = createShopifyInstallUrl(shop, state);
     res.json({ success: true, data: { authorizationUrl } });
-  } catch (error) { next(error); }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Shopify OAuth is not configured;')) {
+      return res.status(503).json({ success: false, error: {
+        code: 'SHOPIFY_OAUTH_NOT_CONFIGURED',
+        message: `${error.message}. Set these variables in apps/api/.env. SHOPIFY_REDIRECT_URI must be an HTTPS callback URL reachable by Shopify and allowlisted in your Shopify app settings; then restart the API server.`,
+      } });
+    }
+    next(error);
+  }
 });
 
 shopifyOAuthRouter.get('/callback', async (req, res) => {

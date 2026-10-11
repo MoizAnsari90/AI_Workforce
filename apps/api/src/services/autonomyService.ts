@@ -56,6 +56,7 @@ export const autonomyService = {
 
   async executeJobRun(tenantId: string, job: { id: string; jobType: string; workflowId: string | null; maxRetries: number }, runId: string, payload: Record<string, unknown>) {
     try {
+      await (await import('./subscriptionService')).assertSubscription(tenantId);
       let output: Record<string, unknown> = { jobType: job.jobType };
       if (job.jobType === 'health_digest') {
         const [pendingApprovals, failedWorkflows, failedRuns] = await Promise.all([

@@ -1,0 +1,78 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ai_workforce
+      POSTGRES_USER: workforce
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a unique production database password}
+    volumes: ["production_db:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workforce -d ai_workforce"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes: ["production_redis:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  migrate:
+    build: { context: ., dockerfile: apps/api/Dockerfile, target: builder }
+    env_file: .env.production
+    working_dir: /app/apps/api
+    command: ["npx", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres: { condition: service_healthy }
+  api:
+    build: { context: ., dockerfile: apps/api/Dockerfile }
+    restart: unless-stopped
+    env_file: .env.production
+    environment: { NODE_ENV: production, PORT: 3001, REDIS_HOST: redis, TRUST_PROXY_HOPS: 1 }
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args: { API_URL: "http://api:3001" }
+    restart: unless-stopped
+    environment: { NODE_ENV: production, PORT: 3000, API_URL: "http://api:3001", API_INTERNAL_URL: "http://api:3001", HOSTNAME: "0.0.0.0" }
+    depends_on:
+      api: { condition: service_healthy }
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
+  gateway:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set the app hostname}
+      API_DOMAIN: ${API_DOMAIN:?Set the API hostname}
+    ports: ["80:80", "443:443"]
+    volumes: ["./deploy/Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data", "caddy_config:/config"]
+    depends_on: [api, web]
+  backup:
+    profiles: [maintenance]
+    build: { context: ., dockerfile: deploy/Dockerfile.backup }
+    env_file: .env.production
+    volumes: ["production_backups:/backups"]
+    command: ["bash", "/ops/backup.sh"]
+    depends_on:
+      postgres: { condition: service_healthy }
+volumes:
+  production_db:
+  production_redis:
+  production_backups:
+  caddy_data:
+  caddy_config:

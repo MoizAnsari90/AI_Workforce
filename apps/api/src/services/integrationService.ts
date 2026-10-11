@@ -56,12 +56,9 @@ export class IntegrationService {
 
     const credential = await prisma.externalIntegrationCredential.upsert({
       where: { tenantId_provider: { tenantId: params.tenantId, provider: params.provider } },
-      update: { encryptedConfig: encryptedConfig as any, isActive: true },
-      create: { tenantId: params.tenantId, provider: params.provider, encryptedConfig: encryptedConfig as any, isActive: true },
+      update: { encryptedConfig: encryptedConfig as any, isActive: true, ...(params.externalAccountId ? { externalAccountId: params.externalAccountId } : {}) },
+      create: { tenantId: params.tenantId, provider: params.provider, encryptedConfig: encryptedConfig as any, isActive: true, externalAccountId: params.externalAccountId },
     });
-    if (params.externalAccountId) {
-      await prisma.$executeRaw`UPDATE external_integration_credentials SET external_account_id = ${params.externalAccountId} WHERE id = ${credential.id} AND tenant_id = ${params.tenantId}`;
-    }
 
     if (params.userId) {
       await recordAuditLog({

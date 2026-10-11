@@ -8,6 +8,10 @@ import { conversationService } from './conversationService';
 import { recordAuditLog } from './auditService';
 import { emitToTenant } from '../lib/socket';
 import { answerWorkforceStockQuestion } from './workforceStockService';
+import { hasRecentWhatsAppDeliveryProof } from './whatsappSetupTestService';
+import { hasSubscription } from './subscriptionService';
+import { hasActiveChannelAgent } from './agentActivationService';
+import { answerWorkforceCommerceQuestion } from './workforceCommerceService';
 
 export interface SupportAgentProcessResult {
   conversationId: string;
@@ -91,7 +95,7 @@ export const supportAgentService = {
     });
 
     // 6. If AI is inactive (human takeover), route to human inbox only
-    if (!conversation.aiActive) {
+    if (!conversation.aiActive || !await hasSubscription(tenantId) || !await hasActiveChannelAgent(tenantId, 'support')) {
       logger.info('AI inactive for conversation, routing to human inbox', {
         tenantId,
         conversationId: conversation.id,
@@ -114,6 +118,27 @@ export const supportAgentService = {
       };
     }
 
+    // A saved Meta credential is not enough to prove the workspace can receive
+    // and reply to WhatsApp. Keep inbound messages visible to staff until a
+    // separate-phone setup test has a real delivered receipt.
+    if (!await hasRecentWhatsAppDeliveryProof(tenantId)) {
+      await conversationService.pauseAI(tenantId, conversation.id);
+      emitToTenant(tenantId, 'conversation:human_inbox', {
+        conversationId: conversation.id,
+        customerPhone: message.fromPhone,
+        customerName: conversation.customerName,
+        message: message.text,
+        reason: 'whatsapp_setup_not_verified',
+      });
+      return {
+        conversationId: conversation.id,
+        messageStored: true,
+        aiActive: false,
+        responseSource: 'human_inbox',
+        escalated: false,
+      };
+    }
+
     // 7. Build conversation history for LLM context (last 10 messages)
     const conversationHistory = conversation.messages.slice(-10).map((m) => ({
       senderType: m.senderType,
@@ -122,11 +147,17 @@ export const supportAgentService = {
 
     // 8. Use verified live commerce data for SKU stock questions on WhatsApp.
     const stockAnswer = await answerWorkforceStockQuestion(tenantId, message.text);
+    // Customer chat can read public product facts, never merchant financial reports
+    // or another customer's order. Order verification belongs to the staff inbox.
+    const commerceAnswer = !stockAnswer ? await answerWorkforceCommerceQuestion(tenantId, message.text, ['operations:read']) : null;
 
     // 9. For other questions, continue through FAQ, RAG and the support model.
     let result: { responseText: string; source: SupportAgentProcessResult['responseSource']; confidence: number; shouldEscalate: boolean; escalationReason?: string };
     if (stockAnswer) {
       result = { responseText: stockAnswer.answer, source: stockAnswer.source as SupportAgentProcessResult['responseSource'], confidence: 1, shouldEscalate: false };
+    } else if (commerceAnswer) {
+      const verified = ['success', 'partial'].includes(commerceAnswer.status);
+      result = { responseText: verified ? commerceAnswer.answer : 'I could not verify that store request automatically. Your message has been passed to the team to check.', source: verified ? 'shopify' : 'human_inbox', confidence: verified ? 1 : 0, shouldEscalate: !verified, ...(!verified ? { escalationReason: 'store_request_requires_staff_verification' } : {}) };
     } else {
       const faqMatch = await faqService.matchFAQ(tenantId, message.text);
       const ragChunks = !faqMatch || faqMatch.similarityScore < 0.95
@@ -140,6 +171,13 @@ export const supportAgentService = {
         ragChunks,
         brandVoiceGuide: business?.brandVoiceGuide ?? undefined,
       });
+    }
+
+    // A staff member may take over while the model/provider lookup is running.
+    // Recheck before committing to a reply; an HTTP send already in flight cannot be recalled.
+    const currentConversation = await prisma.conversation.findFirst({ where: { id: conversation.id, tenantId } });
+    if (!currentConversation?.aiActive || !await hasSubscription(tenantId) || !await hasActiveChannelAgent(tenantId, 'support')) {
+      return { conversationId: conversation.id, messageStored: true, aiActive: false, responseSource: 'human_inbox', escalated: false };
     }
 
     // 11. If escalation triggered, pause AI and notify human inbox

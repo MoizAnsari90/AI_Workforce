@@ -5,6 +5,10 @@ import { prisma } from '../lib/prisma';
 import { NotFoundError, ValidationError } from '../errors/AppError';
 import { logger } from '../utils/logger';
 import { z } from 'zod';
+import { acceptNicheInbound } from '../services/nicheAutomationWorker';
+import { IntegrationService } from '../services/integrationService';
+import { consumeWhatsAppSetupTest } from '../services/whatsappSetupTestService';
+import { sendSupportReply } from '../services/supportReplyService';
 
 // ---------------------------------------------------------------------------
 // GET /api/v1/webhook/:tenantId/whatsapp — Meta verification challenge
@@ -67,34 +71,34 @@ export async function receiveWebhook(req: Request, res: Response, next: NextFunc
         ? req.body
         : JSON.parse(String(req.body ?? '{}'));
 
-    // Acknowledge quickly — Meta requires < 5s response
-    res.status(200).json({ status: 'received' });
-
-    // Parse and enqueue all messages asynchronously (after response is sent)
-    setImmediate(async () => {
+    // Persist niche jobs before acknowledgement so provider retries cannot lose them.
       try {
         const parsed = whatsappService.parseWebhookPayload(payload);
 
         if (parsed.length === 0) {
           logger.debug('Webhook payload contained no actionable messages', { tenantId });
-          return;
+          return res.status(200).json({ status: 'received' });
         }
 
+        // Check the entire batch before queuing any work. Meta's app signature
+        // authenticates the payload, not the tenant chosen in this legacy URL.
+        const credential = await IntegrationService.getWhatsAppCredential(tenantId);
+        if (!credential.phoneNumberId || parsed.some(message => message.phoneNumberId !== credential.phoneNumberId)) {
+          return res.status(403).json({ success: false, error: { code: 'WHATSAPP_ACCOUNT_MISMATCH', message: 'This WhatsApp number does not belong to this workspace.' } });
+        }
         for (const message of parsed) {
-          await queueService.enqueue({ tenantId, message });
+          if (!await consumeWhatsAppSetupTest(tenantId, message) && !await acceptNicheInbound(tenantId, message)) await queueService.enqueue({ tenantId, message });
         }
 
         logger.info('Webhook messages enqueued', {
           tenantId,
           count: parsed.length,
         });
+        return res.status(200).json({ status: 'received' });
       } catch (err) {
-        logger.error('Failed to parse or enqueue webhook payload', {
-          tenantId,
-          error: err instanceof Error ? err.message : String(err),
-        });
+        logger.error('Failed to persist webhook payload', { tenantId });
+        return res.status(503).json({ error: 'Webhook persistence unavailable. Retry delivery.' });
       }
-    });
   } catch (error) {
     next(error);
   }
@@ -104,7 +108,8 @@ export async function receiveWebhook(req: Request, res: Response, next: NextFunc
 // Schema for human reply
 // ---------------------------------------------------------------------------
 const humanReplySchema = z.object({
-  message: z.string().min(1, 'Reply message is required'),
+  message: z.string().trim().min(1, 'Reply message is required').max(2000),
+  requestId: z.string().uuid(),
 });
 
 // ---------------------------------------------------------------------------
@@ -114,66 +119,24 @@ const humanReplySchema = z.object({
 export async function humanReply(req: Request, res: Response, next: NextFunction) {
   try {
     const { tenantId, conversationId } = req.params;
-    const { message } = humanReplySchema.parse(req.body);
-
-    // Tenant-isolated fetch
-    const conversation = await prisma.conversation.findFirst({
-      where: { id: conversationId, tenantId },
-    });
-
-    if (!conversation) {
-      return next(new NotFoundError('Conversation not found'));
-    }
-
-    const { whatsappService: ws } = await import('../services/whatsappService');
-    const { conversationService } = await import('../services/conversationService');
+    const { message, requestId } = humanReplySchema.parse(req.body);
     const { recordAuditLog } = await import('../services/auditService');
     const { emitToTenant } = await import('../lib/socket');
-
-    // Resolve the tenant's encrypted Embedded Signup credentials (or legacy settings).
-    const { IntegrationService } = await import('../services/integrationService');
-    const { accessToken, phoneNumberId } = await IntegrationService.getWhatsAppCredential(tenantId);
-
-    // Send via WhatsApp
-    const { messageId: sentMessageId } = await ws.sendMessage(
-      tenantId,
-      conversation.customerPhone,
-      message,
-      accessToken,
-      phoneNumberId,
-    );
-
-    // Store outbound message
-    await conversationService.recordOutbound(
-      tenantId,
-      conversationId,
-      message,
-      'human',
-      sentMessageId,
-    );
-
-    // Emit real-time event
-    emitToTenant(tenantId, 'message:new', {
-      conversationId,
-      direction: 'outbound',
-      senderType: 'human',
-      textContent: message,
-    });
-
-    // Audit
-    await recordAuditLog({
-      tenantId,
-      actorType: 'user',
-      actorId: req.user!.userId,
-      operation: 'human_reply_sent',
-      entityType: 'conversation',
-      entityId: conversationId,
-      newValue: { textPreview: message.substring(0, 80), sentMessageId },
-    });
+    const result = await sendSupportReply({ tenantId, conversationId, userId: req.user!.userId, requestId, message });
+    if (!result.replayed) {
+      emitToTenant(tenantId, 'message:new', {
+        conversationId, direction: 'outbound', senderType: 'human', textContent: message,
+      });
+      await recordAuditLog({
+        tenantId, actorType: 'user', actorId: req.user!.userId,
+        operation: 'human_reply_sent', entityType: 'conversation', entityId: conversationId,
+        newValue: { textPreview: message.substring(0, 80), sentMessageId: result.sentMessageId },
+      }).catch(() => logger.warn('Could not write support reply audit event', { tenantId, conversationId }));
+    }
 
     return res.status(200).json({
       success: true,
-      data: { conversationId, sentMessageId },
+      data: result,
       meta: { timestamp: new Date().toISOString(), tenantId },
     });
   } catch (error) {

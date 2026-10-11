@@ -24,6 +24,33 @@ model SubscriptionTier {
   @@map("subscription_tiers")
 }
 
+model BillingAccount {
+  tenantId String @id @map("tenant_id")
+  customerId String @unique @map("customer_id")
+  subscriptionId String? @unique @map("subscription_id")
+  status String @default("inactive")
+  planId String? @map("plan_id")
+  periodEnd DateTime? @map("period_end")
+  cancelAtPeriodEnd Boolean @default(false) @map("cancel_at_period_end")
+  lastInvoiceId String? @map("last_invoice_id")
+  checkoutId String? @map("checkout_id")
+  checkoutUrl String? @map("checkout_url")
+  checkoutExpiresAt DateTime? @map("checkout_expires_at")
+  livemode Boolean @default(false)
+  updatedAt DateTime @updatedAt @map("updated_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@map("billing_accounts")
+}
+
+model BillingEvent {
+  id String @id
+  tenantId String @map("tenant_id")
+  type String
+  processedAt DateTime @default(now()) @map("processed_at")
+  @@index([tenantId, processedAt])
+  @@map("billing_events")
+}
+
 model TenantCredits {
   tenantId         String   @id @map("tenant_id")
   tierId           String   @map("tier_id")
@@ -94,6 +121,7 @@ model Tenant {
   subscriptionTierId       String?  @map("subscription_tier_id")
   subscriptionTier         SubscriptionTier? @relation("TenantSubscriptionTier", fields: [subscriptionTierId], references: [id])
   tenantCredits            TenantCredits?
+  billingAccount           BillingAccount?
   creditLogs               CreditConsumptionLog[]
   integrations             IntegrationConfig[]
 
@@ -153,8 +181,212 @@ model Tenant {
   appointmentSlots AppointmentSlot[]
   patientIntakeRecords PatientIntakeRecord[]
   idempotencyLogs IdempotencyLog[]
+  businessProfile BusinessProfile?
+  googleCalendar GoogleCalendarConnection?
+  calendarOAuthStates CalendarOAuthState[]
+  bookingResources BookingResource[]
+  clinicServices ClinicService[]
+  propertyListings PropertyListing[]
+  scheduledAppointments ScheduledAppointment[]
+  nicheAutomation NicheAutomation?
+  storeReportSchedule StoreReportSchedule?
+  storeDailyReports StoreDailyReport[]
+  nicheSessions NicheSession[]
+  nicheDispatches NicheDispatch[]
 
   @@map("tenants")
+}
+
+model BusinessProfile {
+  tenantId String @id @map("tenant_id")
+  profile Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@map("business_profiles")
+}
+
+model StoreReportSchedule {
+  tenantId String @id @map("tenant_id")
+  enabled Boolean @default(false)
+  recipient String @default("")
+  deliveryTime String @default("00:10") @map("delivery_time")
+  timezone String
+  templateName String @default("") @map("template_name")
+  templateLanguage String @default("en_US") @map("template_language")
+  consentAt DateTime? @map("consent_at")
+  nextRunAt DateTime @map("next_run_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@index([enabled, nextRunAt])
+  @@map("store_report_schedules")
+}
+
+model StoreDailyReport {
+  id String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  reportDate String @map("report_date")
+  status String @default("pending")
+  summary Json?
+  error String?
+  providerId String? @map("provider_id")
+  attempts Int @default(0)
+  leaseUntil DateTime? @map("lease_until")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, reportDate])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, providerId])
+  @@map("store_daily_reports")
+}
+
+model BookingResource {
+  id String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  kind String
+  name String
+  specialty String?
+  calendarId String @map("calendar_id")
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  services ClinicService[]
+  appointments ScheduledAppointment[]
+  @@unique([tenantId, id])
+  @@index([tenantId, kind])
+  @@map("booking_resources")
+}
+
+model ClinicService {
+  id String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  resourceId String @map("resource_id")
+  name String
+  durationMinutes Int @map("duration_minutes")
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  resource BookingResource @relation(fields: [tenantId, resourceId], references: [tenantId, id], onDelete: Cascade)
+  @@index([tenantId])
+  @@map("clinic_services")
+}
+
+model PropertyListing {
+  id String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  reference String
+  title String
+  city String
+  area String
+  propertyType String @map("property_type")
+  purpose String
+  price Decimal @db.Decimal(15, 2)
+  currency String
+  country String
+  bedrooms Int?
+  active Boolean @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, reference])
+  @@index([tenantId, active])
+  @@map("property_listings")
+}
+
+model ScheduledAppointment {
+  id String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  resourceId String @map("resource_id")
+  kind String
+  serviceId String? @map("service_id")
+  propertyId String? @map("property_id")
+  leadId String? @map("lead_id")
+  startTime DateTime @map("start_time")
+  endTime DateTime @map("end_time")
+  bufferMinutes Int @map("buffer_minutes")
+  timezone String
+  encryptedContact String @map("encrypted_contact")
+  calendarId String @map("calendar_id")
+  connectionId String @map("connection_id")
+  eventId String @unique @map("event_id")
+  status String @default("sync_pending")
+  idempotencyKey String @map("idempotency_key")
+  requestHash String @map("request_hash")
+  reminderConsent Boolean @default(false) @map("reminder_consent")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  resource BookingResource @relation(fields: [tenantId, resourceId], references: [tenantId, id], onDelete: Cascade)
+  @@unique([tenantId, idempotencyKey])
+  @@index([tenantId, calendarId, status, startTime])
+  @@map("scheduled_appointments")
+}
+
+model NicheAutomation {
+  tenantId String @id @map("tenant_id")
+  config Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@map("niche_automation")
+}
+
+model NicheSession {
+  id String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  channel String
+  customerHash String @map("customer_hash")
+  encryptedState String @map("encrypted_state")
+  paused Boolean @default(false)
+  optedOut Boolean @default(false) @map("opted_out")
+  handoffReason String? @map("handoff_reason")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, channel, customerHash])
+  @@index([tenantId, paused])
+  @@map("niche_sessions")
+}
+
+model NicheDispatch {
+  id String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  key String
+  type String
+  scope String @default("")
+  encryptedPayload String @map("encrypted_payload")
+  status String @default("pending")
+  dueAt DateTime @default(now()) @map("due_at")
+  providerId String? @map("provider_id")
+  attempts Int @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@unique([tenantId, key])
+  @@index([status, dueAt])
+  @@index([tenantId, providerId])
+  @@map("niche_dispatches")
+}
+
+model GoogleCalendarConnection {
+  tenantId String @id @map("tenant_id")
+  connectionId String @default(uuid()) @map("connection_id")
+  encryptedTokens String @map("encrypted_tokens")
+  calendarId String? @map("calendar_id")
+  calendarName String? @map("calendar_name")
+  calendarTimezone String? @map("calendar_timezone")
+  connectedAt DateTime @default(now()) @map("connected_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@map("google_calendar_connections")
+}
+
+model CalendarOAuthState {
+  stateHash String @id @map("state_hash")
+  tenantId String @map("tenant_id")
+  userId String @map("user_id")
+  codeVerifier String @map("code_verifier")
+  expiresAt DateTime @map("expires_at")
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  @@index([expiresAt])
+  @@map("calendar_oauth_states")
 }
 
 model User {

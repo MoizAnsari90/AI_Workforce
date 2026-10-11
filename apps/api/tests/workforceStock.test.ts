@@ -9,6 +9,10 @@ vi.mock('../src/middleware/authMiddleware', () => ({ authenticate: (req: any, re
   next();
 } }));
 vi.mock('../src/lib/prisma', () => ({ prisma: {} }));
+vi.mock('../src/services/idempotencyService', () => ({ IdempotencyService: {
+  generateIdempotencyKey: vi.fn(async () => ({ key: 'request-key', idempotencyLog: null })),
+  createPendingLog: vi.fn(), checkIdempotency: vi.fn(), logSuccess: vi.fn(), logFailure: vi.fn(),
+} }));
 vi.mock('../src/services/integrationService', () => ({ IntegrationService: { getCredential } }));
 vi.mock('../src/services/woocommerceClient', async () => {
   const actual = await vi.importActual<typeof import('../src/services/woocommerceClient')>('../src/services/woocommerceClient');

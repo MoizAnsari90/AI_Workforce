@@ -7,6 +7,8 @@ import { supportAgentService } from './services/supportAgentService';
 import { initSocketServer } from './lib/socket';
 import { autonomyService } from './services/autonomyService';
 import { prisma } from './lib/prisma';
+import { startNicheAutomation, stopNicheAutomation } from './services/nicheAutomationWorker';
+import { startStoreReports, stopStoreReports } from './services/storeReportScheduler';
 
 // Create HTTP server so Socket.io can share it with Express
 const httpServer = http.createServer(app);
@@ -20,6 +22,8 @@ queueService.registerProcessor(async (data) => {
 });
 
 autonomyService.startScheduler();
+startNicheAutomation();
+startStoreReports();
 
 httpServer.listen(env.PORT, () => {
   logger.info(`AI Workforce API server running on port ${env.PORT} in ${env.NODE_ENV} mode`, {
@@ -33,6 +37,8 @@ async function shutdown() {
   try {
     await queueService.close();
     autonomyService.stopScheduler();
+    await stopNicheAutomation();
+    await stopStoreReports();
     await prisma.$disconnect();
     httpServer.close(() => {
       logger.info('Process terminated');

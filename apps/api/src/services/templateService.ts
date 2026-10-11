@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { logger } from '../utils/logger';
+import { assertAgentCapacity } from './subscriptionService';
 import { recordAuditLog } from './auditService';
 
 export class TemplateService {
@@ -93,7 +94,7 @@ export class TemplateService {
     });
   }
 
-  static async deployTemplate(tenantId: string, templateId: string, userId: string) {
+  static async deployTemplate(tenantId: string, templateId: string, userId: string, activate = true) {
     const template = await prisma.workflowTemplate.findUnique({
       where: { id: templateId },
     });
@@ -102,11 +103,16 @@ export class TemplateService {
       throw new Error('Workflow template not found');
     }
 
-    // Clone template into tenant workflow and agent records
-    const workflow = await prisma.workflow.create({
+    // Serialize quota check and deployment so simultaneous requests cannot
+    // provision more agents than the subscribed plan allows.
+    const deployment = await prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agents:${tenantId}`}))`;
+    await assertAgentCapacity(tenantId, tx);
+    const workflow = await tx.workflow.create({
       data: {
         tenantId,
         name: `Deployed: ${template.name}`,
+        status: activate ? 'running' : 'paused',
         graphDefinition: template.definition as any,
       },
     });
@@ -114,17 +120,18 @@ export class TemplateService {
     const department = template.category === 'HEALTHCARE' ? 'healthcare' : template.category === 'ecommerce' ? 'operations' : 'sales';
 
     // Create a default agent associated with this template, including healthcare guardrail if applicable
-    const agent = await prisma.agent.create({
+    const agent = await tx.agent.create({
       data: {
         tenantId,
         name: `${template.name} Worker`,
         department,
+        isActive: activate,
       },
     });
 
     // If healthcare template, create initial agent version with medical guardrail prompt
     if (template.category === 'HEALTHCARE') {
-      await prisma.agentVersion.create({
+      await tx.agentVersion.create({
         data: {
           agentId: agent.id,
           systemPrompt: 'You are a professional Clinic Receptionist Agent. Assist patients with appointment scheduling and slot locking. CRITICAL GUARDRAIL: Never provide medical diagnosis or medical advice. Direct emergency patients to call 911.',
@@ -134,23 +141,20 @@ export class TemplateService {
       });
     }
 
+    return { success: true, workflowId: workflow.id, agentId: agent.id, templateName: template.name };
+    }, { timeout: 60000, maxWait: 10000 });
+
     await recordAuditLog({
       tenantId,
       actorType: 'user',
       actorId: userId,
       operation: 'deploy_workflow_template',
       entityType: 'workflow',
-      entityId: workflow.id,
-      newValue: { templateName: template.name, agentId: agent.id, category: template.category },
+      entityId: deployment.workflowId,
+      newValue: { templateName: template.name, agentId: deployment.agentId, category: template.category },
     });
 
-    logger.info('Niche workflow template deployed to tenant', { tenantId, templateId, workflowId: workflow.id });
-
-    return {
-      success: true,
-      workflowId: workflow.id,
-      agentId: agent.id,
-      templateName: template.name,
-    };
+    logger.info('Niche workflow template deployed to tenant', { tenantId, templateId, workflowId: deployment.workflowId });
+    return deployment;
   }
 }

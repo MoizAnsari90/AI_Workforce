@@ -26,7 +26,8 @@ async function handleProxy(req: Request, pathSegments: string[], method: string)
     const path = pathSegments.join("/");
     const url = new URL(req.url);
     const searchParams = url.searchParams.toString();
-    const targetUrl = `http://localhost:3001/api/v1/${path}${searchParams ? `?${searchParams}` : ""}`;
+    const base = (process.env.API_INTERNAL_URL || "http://localhost:3001").replace(/\/$/, "");
+    const targetUrl = `${base}/api/v1/${path}${searchParams ? `?${searchParams}` : ""}`;
 
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;

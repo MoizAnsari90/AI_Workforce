@@ -36,7 +36,7 @@ export async function answerWorkforceStockQuestion(tenantId: string, question: s
   const commerceProvider = wooConfig ? 'woocommerce' : 'shopify';
   if (requestsSpecificPeriod(question)) return { answer: 'Historical/date-filtered stock is not supported yet. I can check current live store stock if you provide the exact SKU.', source: 'clarification', readOnly: true, status: 'unsupported_period' };
   if (!skus.length || skus.length > 5) return {
-    answer: skus.length > 5 ? 'Please request up to 5 SKUs at a time. No stock lookup was performed.' : 'Please share the exact product SKU. For example: "Check stock for SKU: sku-managed-1". Product-name search is not available yet.',
+    answer: skus.length > 5 ? 'Please request up to 5 SKUs at a time. No stock lookup was performed.' : 'Please share the exact product SKU. For example: "Check stock for SKU: sku-managed-1". For Shopify, you can also ask: What is the stock of product "HR Clothing part"?',
     source: 'clarification', readOnly: true, status: 'needs_sku',
   };
   // Sequential reads limit provider load; a failed SKU does not hide other results.

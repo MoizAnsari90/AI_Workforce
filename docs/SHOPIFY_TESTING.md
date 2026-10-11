@@ -70,7 +70,9 @@ A cancellation job or unsettled refund returns PENDING, not SUCCESS. Confirm com
 
 ## Remaining deployment setup
 
-This is a backend connector supporting Admin API tokens and tenant-bound client-credential renewal. The existing `shopify.app.toml` application/callback URLs remain placeholders because the real public app URL has not been supplied. Do not treat the app as ready for embedded installation or OAuth: configure the actual HTTPS URLs and implement that installation flow before distributing it. The connector smoke test above does not use those placeholder URLs. No live mutation or deployment is performed by the automated tests.
+The Integrations UI has a tenant-scoped authorization-code OAuth start/callback flow. To use **Connect Shopify**, set `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET` in `apps/api/.env`, and set `SHOPIFY_REDIRECT_URI` to the public HTTPS address for `/api/v1/shopify/oauth/callback`. Add that exact callback URL to the Shopify app's allowed redirect URLs. For local testing, expose API port 3001 through a secure HTTPS tunnel and use the tunnel's stable URL for both settings. Set `WEB_APP_URL=http://localhost:3000` so the callback returns to the local dashboard. Restart the API after editing `.env`. See Shopify's [standalone app authorization-code guide](https://shopify.dev/docs/apps/build/authentication-authorization/authenticate-standalone-apps) and [app configuration reference](https://shopify.dev/docs/apps/build/cli-for-apps/app-configuration) for the current redirect URL requirements.
+
+The backend connector smoke test above does not use OAuth callback settings. No live mutation or deployment is performed by the automated tests.
 
 ## Local verification
 

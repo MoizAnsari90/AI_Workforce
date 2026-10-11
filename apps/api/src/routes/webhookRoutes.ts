@@ -12,11 +12,14 @@ import {
   pauseAI,
   resumeAI,
 } from '../controllers/webhookController';
-import { VoiceService } from '../services/voiceService';
 import { whatsappService } from '../services/whatsappService';
 import { queueService } from '../services/queueService';
 import { logger } from '../utils/logger';
 import { IntegrationService } from '../services/integrationService';
+import { acceptNicheInbound, recordNicheDelivery } from '../services/nicheAutomationWorker';
+import { receiveNicheVoice } from '../controllers/nicheVoiceController';
+import { consumeWhatsAppSetupTest } from '../services/whatsappSetupTestService';
+import { recordStoreReportDelivery } from '../services/storeReportScheduler';
 
 export const webhookRouter = Router();
 
@@ -40,8 +43,6 @@ webhookRouter.post('/webhook/whatsapp', async (req, res) => {
   let payload: unknown;
   try { payload = JSON.parse(rawBody.toString('utf8')); }
   catch { return res.status(400).json({ success: false, error: { code: 'INVALID_WEBHOOK', message: 'Invalid JSON payload' } }); }
-  res.status(200).json({ status: 'received' });
-  setImmediate(async () => {
     try {
       const messages = whatsappService.parseWebhookPayload(payload);
       for (const message of messages) {
@@ -51,13 +52,24 @@ webhookRouter.post('/webhook/whatsapp', async (req, res) => {
           WHERE provider = 'whatsapp' AND external_account_id = ${message.phoneNumberId} AND is_active = true
           LIMIT 1`;
         const connection = matches[0];
-        if (connection) await queueService.enqueue({ tenantId: connection.tenantId, message });
-        else logger.warn('WhatsApp webhook number is not connected to an active workspace', { phoneNumberId: message.phoneNumberId });
+        if (connection) {
+          if (!await consumeWhatsAppSetupTest(connection.tenantId, message) && !await acceptNicheInbound(connection.tenantId, message)) await queueService.enqueue({ tenantId: connection.tenantId, message });
+        } else logger.warn('WhatsApp webhook number is not connected to an active workspace', { phoneNumberId: message.phoneNumberId });
       }
+      const delivery = z.object({ entry: z.array(z.object({ changes: z.array(z.object({ value: z.object({ metadata: z.object({ phone_number_id: z.string() }).optional(), statuses: z.array(z.object({ id: z.string(), status: z.string() })).optional() }) })) })) }).safeParse(payload);
+      if (delivery.success) for (const entry of delivery.data.entry) for (const change of entry.changes) {
+        if (!change.value.metadata) continue;
+        const connection = await prisma.externalIntegrationCredential.findFirst({ where: { provider: 'whatsapp', externalAccountId: change.value.metadata.phone_number_id, isActive: true }, select: { tenantId: true } });
+        if (connection) for (const status of change.value.statuses || []) {
+          await recordNicheDelivery(connection.tenantId, status.id, status.status);
+          await recordStoreReportDelivery(connection.tenantId, status.id, status.status);
+        }
+      }
+      return res.status(200).json({ status: 'received' });
     } catch (error) {
-      logger.error('Failed to route WhatsApp webhook messages', { error: error instanceof Error ? error.message : String(error) });
+      logger.error('Failed to persist WhatsApp webhook messages');
+      return res.status(503).json({ error: 'Webhook persistence unavailable. Retry delivery.' });
     }
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -65,20 +77,8 @@ webhookRouter.post('/webhook/whatsapp', async (req, res) => {
 // ---------------------------------------------------------------------------
 webhookRouter.get('/webhook/:tenantId/whatsapp', verifyWebhook);
 webhookRouter.post('/webhook/:tenantId/whatsapp', receiveWebhook);
-webhookRouter.post('/webhook/:tenantId/voice', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const { tenantId } = req.params;
-    const body = Buffer.isBuffer(req.body)
-      ? JSON.parse(req.body.toString('utf8'))
-      : typeof req.body === 'string'
-      ? JSON.parse(req.body)
-      : req.body;
-    const result = await VoiceService.handleWebhook(tenantId, body);
-    return res.status(200).json({ success: true, data: result });
-  } catch (error) {
-    next(error);
-  }
-});
+webhookRouter.post('/webhook/:tenantId/niche-voice', receiveNicheVoice);
+webhookRouter.post('/webhook/:tenantId/voice', (_req, res) => res.status(410).json({ error: 'Use the authenticated niche-voice endpoint. Unauthenticated voice callbacks are no longer accepted.' }));
 
 // ---------------------------------------------------------------------------
 // Conversation Management (authenticated, tenant-isolated)
@@ -97,7 +97,8 @@ webhookRouter.get(
       const aiActiveFilter =
         aiActiveStr === 'true' ? true : aiActiveStr === 'false' ? false : undefined;
 
-      const conversations = await conversationService.listForTenant(tenantId, aiActiveFilter);
+      const page = z.coerce.number().int().min(0).max(10000).default(0).parse(req.query.page);
+      const conversations = await conversationService.listForTenant(tenantId, aiActiveFilter, page);
 
       return res.status(200).json({
         success: true,
@@ -123,7 +124,8 @@ webhookRouter.get(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { tenantId, conversationId } = req.params;
-      const conversation = await conversationService.findByIdForTenant(tenantId, conversationId);
+      const before = z.string().uuid().optional().parse(req.query.before);
+      const conversation = await conversationService.findByIdForTenant(tenantId, conversationId, before);
 
       if (!conversation) {
         return res.status(404).json({

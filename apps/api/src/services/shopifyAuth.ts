@@ -6,7 +6,10 @@ export function shopifyAppCredentials(requireCallback = false) {
   const clientId = process.env.SHOPIFY_CLIENT_ID?.trim();
   const clientSecret = process.env.SHOPIFY_CLIENT_SECRET?.trim();
   const callbackUrl = process.env.SHOPIFY_REDIRECT_URI?.trim();
-  if (!clientId || !clientSecret || (requireCallback && !callbackUrl)) throw new Error('Shopify OAuth is not configured (SHOPIFY_CLIENT_ID, SHOPIFY_CLIENT_SECRET, SHOPIFY_REDIRECT_URI)');
+  if (!clientId || !clientSecret || (requireCallback && !callbackUrl)) {
+    const missing = [!clientId ? 'SHOPIFY_CLIENT_ID' : '', !clientSecret ? 'SHOPIFY_CLIENT_SECRET' : '', requireCallback && !callbackUrl ? 'SHOPIFY_REDIRECT_URI' : ''].filter(Boolean);
+    throw new Error(`Shopify OAuth is not configured; missing ${missing.join(', ')}`);
+  }
   return { clientId, clientSecret, callbackUrl: callbackUrl! };
 }
 
@@ -16,7 +19,7 @@ export function createShopifyInstallUrl(shop: string, state: string) {
   const { clientId, callbackUrl } = shopifyAppCredentials(true);
   const url = new URL(`https://${validShop.data}/admin/oauth/authorize`);
   url.searchParams.set('client_id', clientId);
-  url.searchParams.set('scope', process.env.SHOPIFY_SCOPES || 'read_inventory,write_inventory,read_orders,write_orders');
+  url.searchParams.set('scope', process.env.SHOPIFY_SCOPES || 'read_products,read_inventory,write_inventory,read_orders,write_orders');
   url.searchParams.set('redirect_uri', callbackUrl);
   url.searchParams.set('state', state);
   return url.toString();

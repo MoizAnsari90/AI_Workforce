@@ -1,169 +1,176 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { ArrowRight, ArrowUpRight, Check, ChevronDown, CircleAlert, LockKeyhole, MessageCircle, Plug, RefreshCw, ShieldCheck, Sparkles, Unplug } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext.hooks";
+import { ProviderMark, WorkforceMark } from "@/components/workforce/brand";
+import { workforceRequest } from "@/lib/workforce-api";
 
 type ShopifyConnection = { connected: boolean; shop?: string; name?: string; scopes?: string[]; allowWrites?: boolean };
 type WooConnection = { connected: boolean; storeUrl?: string; needsReconnect?: boolean };
+type WhatsAppConnection = { connected: boolean; deliveryVerified?: boolean; phoneNumber?: string; verifiedName?: string; status?: string };
+type Provider = "shopify" | "woocommerce" | "whatsapp";
 
 export default function IntegrationsPage() {
-  const { user } = useAuth();
+  const { user, tenant } = useAuth();
+  const tenantId = user?.tenantId || tenant?.id;
+  const isAdmin = user?.role === "admin";
   const [shop, setShop] = useState("");
-  const [connection, setConnection] = useState<ShopifyConnection | null>(null);
-  const [wooConnection, setWooConnection] = useState<WooConnection | null>(null);
   const [wooStoreUrl, setWooStoreUrl] = useState("");
+  const [connection, setConnection] = useState<ShopifyConnection | null>(null);
+  const [woo, setWoo] = useState<WooConnection | null>(null);
+  const [whatsapp, setWhatsapp] = useState<WhatsAppConnection | null>(null);
+  const [errors, setErrors] = useState<Partial<Record<Provider, string>>>({});
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ message: string; error?: boolean } | null>(null);
+  const request = useRef<AbortController | null>(null);
+  const actionLock = useRef(false);
 
   const load = useCallback(async () => {
-    if (!user?.tenantId) return;
+    if (!tenantId) {
+      setErrors({ shopify: "Workspace connection is unavailable. Refresh the page and sign in again.", woocommerce: "Workspace connection is unavailable. Refresh the page and sign in again.", whatsapp: "Workspace connection is unavailable. Refresh the page and sign in again." });
+      setLoading(false);
+      return;
+    }
+    if (!isAdmin) { setLoading(false); return; }
+    request.current?.abort();
+    const controller = new AbortController(); request.current = controller;
+    let timedOut = false;
+    const timeout = window.setTimeout(() => { timedOut = true; controller.abort(); }, 15_000);
+    setLoading(true);
     try {
-      const [response, wooResponse] = await Promise.all([
-        fetch(`/api/proxy/tenants/${user.tenantId}/shopify/connection`),
-        fetch("/api/proxy/woocommerce/connection"),
+      const results = await Promise.allSettled([
+        workforceRequest<ShopifyConnection>(`/api/proxy/tenants/${tenantId}/shopify/connection`, { signal: controller.signal }),
+        workforceRequest<WooConnection>("/api/proxy/woocommerce/connection", { signal: controller.signal }),
+        workforceRequest<WhatsAppConnection>("/api/proxy/whatsapp/onboarding/connection", { signal: controller.signal }),
       ]);
-      const [json, wooJson] = await Promise.all([response.json(), wooResponse.json()]);
-      if (response.ok) setConnection(json.data);
-      else setNotice(json.error?.message || "Shopify connection status could not be loaded.");
-      if (wooResponse.ok) setWooConnection(wooJson.data);
-    } catch { setNotice("Shopify connection status could not be loaded."); }
-    finally { setLoading(false); }
-  }, [user?.tenantId]);
+      if (controller.signal.aborted && !timedOut) return;
+      setConnection(results[0].status === "fulfilled" ? results[0].value : null);
+      setWoo(results[1].status === "fulfilled" ? results[1].value : null);
+      setWhatsapp(results[2].status === "fulfilled" ? results[2].value : null);
+      const nextErrors: Partial<Record<Provider, string>> = {};
+      (["shopify", "woocommerce", "whatsapp"] as const).forEach((provider, index) => {
+        const result = results[index];
+        if (result.status === "rejected") nextErrors[provider] = timedOut ? "Checking timed out. Use Refresh status to try again." : result.reason instanceof Error ? result.reason.message : "Connection status is unavailable.";
+      });
+      setErrors(nextErrors);
+    } finally {
+      window.clearTimeout(timeout);
+      if (!controller.signal.aborted || timedOut) setLoading(false);
+    }
+  }, [tenantId, isAdmin]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { setConnection(null); setWoo(null); setWhatsapp(null); setErrors({}); void load(); return () => request.current?.abort(); }, [load]);
   useEffect(() => {
-    const result = new URLSearchParams(window.location.search).get("shopify");
-    const wooResult = new URLSearchParams(window.location.search).get("woocommerce");
-    if (!result && !wooResult) return;
+    const params = new URLSearchParams(window.location.search);
+    const shopifyResult = params.get("shopify"); const wooResult = params.get("woocommerce");
+    if (!shopifyResult && !wooResult) return;
     const messages: Record<string, string> = {
-      connected: "Shopify connected successfully.",
-      invalid_callback: "Shopify could not verify this callback. Please try connecting again.",
-      expired_or_mismatched_state: "This connection request expired or the store did not match. Please try again.",
-      missing_permissions: "The Shopify app is missing required permissions. Update the app scopes and reconnect.",
-      store_already_connected: "Another Shopify store is already connected to this workspace. Disconnect it before connecting a different store.",
-      connection_failed: "Shopify connection failed. Check the app configuration and try again.",
+      connected: "Shopify connected. Your workspace can now access your store.",
+      invalid_callback: "Shopify couldn't verify the connection. Please try again.",
+      expired_or_mismatched_state: "This connection request expired or the store didn't match. Please try again.",
+      missing_permissions: "Shopify needs additional permissions. Please reconnect your store.",
+      store_already_connected: "Disconnect the current Shopify store before choosing another.",
+      connection_failed: "Shopify couldn't connect. Please try again or contact your workspace admin.",
     };
-    setNotice(wooResult === "connected" ? "WooCommerce authorization completed; checking the store connection…" : (result ? messages[result] : "Shopify connection was not completed."));
+    setNotice(wooResult ? { message: wooResult === "connected" ? "WooCommerce authorization completed. Refreshing connection status..." : "WooCommerce connection wasn't completed.", error: wooResult !== "connected" } : { message: messages[shopifyResult!] || "Shopify connection wasn't completed.", error: shopifyResult !== "connected" });
     window.history.replaceState({}, "", "/dashboard/integrations");
-    if (result === "connected" || wooResult === "connected") window.setTimeout(() => void load(), 700);
+    const timeout = window.setTimeout(() => void load(), 800);
+    return () => window.clearTimeout(timeout);
   }, [load]);
 
-  const beginConnect = async () => {
-    if (!user?.tenantId || user.role !== "admin") return;
-    setBusy(true); setNotice("");
-    try {
-      const domain = shop.trim().toLowerCase().endsWith(".myshopify.com") ? shop.trim().toLowerCase() : `${shop.trim().toLowerCase()}.myshopify.com`;
-      const response = await fetch(`/api/proxy/shopify/oauth/start?shop=${encodeURIComponent(domain)}`);
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message || json.error || "Unable to start Shopify authorization");
-      window.location.assign(json.data.authorizationUrl);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to start Shopify authorization"); setBusy(false); }
+  async function perform(name: string, action: () => Promise<void>) {
+    if (!isAdmin || actionLock.current) return;
+    actionLock.current = true; setBusy(name); setNotice(null);
+    try { await action(); }
+    catch (error) { setNotice({ message: error instanceof Error ? error.message : "The connection couldn't be updated. Please try again.", error: true }); }
+    finally { actionLock.current = false; setBusy(null); }
+  }
+  const connectShopify = (selectedShop = shop) => perform("shopify-connect", async () => {
+    const raw = selectedShop.trim().toLowerCase();
+    const domain = raw.endsWith(".myshopify.com") ? raw : `${raw}.myshopify.com`;
+    if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(domain)) throw new Error("Enter your Shopify store name or its myshopify.com domain, without https:// or a path.");
+    const result = await workforceRequest<{ authorizationUrl: string }>(`/api/proxy/shopify/oauth/start?shop=${encodeURIComponent(domain)}`);
+    window.location.assign(result.authorizationUrl);
+  });
+  const connectWoo = () => perform("woocommerce-connect", async () => {
+    const result = await workforceRequest<{ authorizationUrl: string }>(`/api/proxy/woocommerce/oauth/start?storeUrl=${encodeURIComponent(wooStoreUrl.trim())}`);
+    window.location.assign(result.authorizationUrl);
+  });
+  const disconnect = async (provider: "shopify" | "woocommerce") => {
+    const message = provider === "shopify" ? "Disconnect Shopify? To fully revoke access, also uninstall AI Workforce from Shopify Admin > Apps." : "Disconnect this WooCommerce store from your workspace?";
+    if (!window.confirm(message)) return;
+    await perform(`${provider}-disconnect`, async () => {
+      await workforceRequest(provider === "shopify" ? `/api/proxy/tenants/${tenantId}/shopify/connection` : "/api/proxy/woocommerce/connection", { method: "DELETE" });
+      if (provider === "shopify") setConnection({ connected: false }); else setWoo({ connected: false });
+      setNotice({ message: `${provider === "shopify" ? "Shopify" : "WooCommerce"} disconnected from your workspace.` });
+    });
   };
+  const setWrites = (enabled: boolean) => perform("shopify-writes", async () => {
+    await workforceRequest(`/api/proxy/tenants/${tenantId}/shopify/connection/writes`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }) });
+    setConnection(current => current ? { ...current, allowWrites: enabled } : current);
+    setNotice({ message: enabled ? "Store changes enabled. Refunds and cancellations still require your approval." : "Store changes disabled." });
+  });
 
-  const beginWooConnect = async () => {
-    if (!user?.tenantId || user.role !== "admin") return;
-    setBusy(true); setNotice("");
-    try {
-      const response = await fetch(`/api/proxy/woocommerce/oauth/start?storeUrl=${encodeURIComponent(wooStoreUrl.trim())}`);
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message || "Unable to start WooCommerce authorization.");
-      window.location.assign(json.data.authorizationUrl);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to start WooCommerce authorization."); setBusy(false); }
-  };
+  const status = (provider: Provider, connected?: boolean, reconnect = false) => <span className={`wf-badge ${reconnect || (provider === 'whatsapp' && connected && !whatsapp?.deliveryVerified) ? "wf-badge-amber" : connected && !errors[provider] ? "wf-badge-mint" : ""}`}>
+    {loading ? <><RefreshCw size={11} className="wf-spin" /> Checking</> : !isAdmin ? "Admin access" : errors[provider] ? "Status unavailable" : provider === 'whatsapp' && whatsapp?.status === 'reconnect_required' ? 'Reconnect required' : reconnect ? "Reconnect soon" : provider === 'whatsapp' && connected && whatsapp?.deliveryVerified ? 'Delivery verified' : provider === 'whatsapp' && connected ? 'Connected · Test required' : connected ? <><span className="wf-status-dot" /> Connected</> : "Not connected"}
+  </span>;
+  const busyLabel = (action: string, label: string) => <>{busy === action ? <RefreshCw size={15} className="wf-spin" /> : <ArrowUpRight size={15} />}{busy === action ? "Please wait..." : label}</>;
+  const storeConnected = Boolean(connection?.connected || woo?.connected);
+  const connectionCount = Number(storeConnected) + Number(Boolean(whatsapp?.connected));
 
-  const disconnectWoo = async () => {
-    if (!window.confirm("Disconnect this WooCommerce store from your workspace?")) return;
-    setBusy(true);
-    try {
-      const response = await fetch("/api/proxy/woocommerce/connection", { method: "DELETE" });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message || "Unable to disconnect WooCommerce.");
-      setWooConnection({ connected: false }); setNotice("WooCommerce store disconnected.");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to disconnect WooCommerce."); }
-    finally { setBusy(false); }
-  };
-
-  const disconnect = async () => {
-    if (!user?.tenantId || !window.confirm("Remove this Shopify connection from your workspace? To fully revoke the app, also uninstall it from Shopify Admin > Apps.")) return;
-    setBusy(true);
-    try {
-      const response = await fetch(`/api/proxy/tenants/${user.tenantId}/shopify/connection`, { method: "DELETE" });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message || "Unable to disconnect Shopify");
-      setConnection({ connected: false }); setNotice("Shopify store disconnected.");
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to disconnect Shopify"); }
-    finally { setBusy(false); }
-  };
-
-  const setWrites = async (enabled: boolean) => {
-    if (!user?.tenantId) return;
-    setBusy(true);
-    try {
-      const response = await fetch(`/api/proxy/tenants/${user.tenantId}/shopify/connection/writes`, {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }),
-      });
-      const json = await response.json();
-      if (!response.ok) throw new Error(json.error?.message || "Unable to update Shopify permissions");
-      setConnection(current => current ? { ...current, allowWrites: enabled } : current);
-    } catch (error) { setNotice(error instanceof Error ? error.message : "Unable to update Shopify permissions"); }
-    finally { setBusy(false); }
-  };
-
-  const isAdmin = user?.role === "admin";
-  return (
-    <div className="mx-auto max-w-5xl space-y-8 text-slate-100">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">Workspace connections</p>
-        <h1 className="mt-2 font-serif text-3xl font-bold text-white">Integrations</h1>
-        <p className="mt-2 max-w-2xl text-sm text-slate-400">Connect the tools your AI workforce uses. Each connection is isolated to this workspace.</p>
-      </div>
-      {notice && <div role="status" className="rounded-xl border border-cyan-900 bg-cyan-950/40 px-4 py-3 text-sm text-cyan-100">{notice}</div>}
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-emerald-800 bg-emerald-950 text-2xl">🛍️</div>
-            <div><h2 className="text-lg font-semibold text-white">Shopify</h2><p className="mt-1 text-sm text-slate-400">Orders, inventory, and approved store operations</p></div>
-          </div>
-          {!loading && <span className={`rounded-full px-3 py-1 text-xs font-semibold ${connection?.connected ? "bg-emerald-950 text-emerald-300" : "bg-slate-800 text-slate-400"}`}>{connection?.connected ? "Connected" : "Not connected"}</span>}
+  return <div className="wf-page wf-integrations-page">
+    <div className="wf-page-heading"><div><p className="wf-eyebrow">YOUR TOOLS, WORKING TOGETHER</p><h1>Connect your <span>business.</span></h1><p>Bring your store and customer conversations into one workspace.</p></div><button className="wf-button wf-button-secondary" disabled={loading || !isAdmin || !!busy} onClick={() => void load()}><RefreshCw size={15} className={loading ? "wf-spin" : ""} /> Refresh status</button></div>
+    <div className="wf-connection-banner"><div className="wf-connection-illustration" aria-hidden="true"><ProviderMark provider="shopify" /><span className="wf-connection-line" /><WorkforceMark /><span className="wf-connection-line" /><ProviderMark provider="whatsapp" /></div><div><h2>A connected business starts here.</h2><p>Choose your store, connect WhatsApp, then ask your workforce a question.</p></div><div className="wf-setup-count"><strong>{loading || !isAdmin || Object.keys(errors).length ? "—" : `${connectionCount}/2`}</strong><span>channels connected</span></div></div>
+    {!isAdmin && user && <div className="wf-notice"><LockKeyhole size={17} /><span>A workspace admin can view and manage these connections.</span></div>}
+    {notice && <div className={`wf-notice ${notice.error ? "wf-notice-error" : ""}`} role={notice.error ? "alert" : "status"}>{notice.error ? <CircleAlert size={17} /> : <Check size={17} />}<span>{notice.message}</span></div>}
+    <div className="wf-integration-section-heading"><div><span className="wf-step-number">01</span><h2>Your online store</h2></div><span>Choose one store for this workspace</span></div>
+    <div className="wf-store-grid">
+      <section className={`wf-panel wf-provider-card ${connection?.connected ? "is-connected" : ""}`} aria-labelledby="shopify-title">
+        <div className="wf-provider-top"><ProviderMark provider="shopify" />{status("shopify", connection?.connected)}</div>
+        <h3 id="shopify-title">Shopify</h3><p className="wf-provider-description">Give your workforce access to inventory, orders and approved store actions.</p>
+        <div className="wf-capabilities"><span><Check size={12} /> Inventory lookup</span><span><ShieldCheck size={12} /> Approval controls</span></div>
+        {errors.shopify && <p role="alert" className="wf-inline-error">{errors.shopify}</p>}
+        <div className="wf-provider-content">
+          {loading ? <p className="wf-muted">Checking your store connection...</p> : connection?.connected ? <>
+            <div className="wf-connected-account"><span className="wf-account-check"><Check size={16} /></span><div><strong>{connection.name || "Your Shopify store"}</strong><span>{connection.shop}</span></div></div>
+            {!connection.scopes?.some(scope => scope === "read_products" || scope === "write_products") && <div className="wf-inline-error"><p>Product-name search and low-stock reports need product access. Update permissions to enable them; your existing SKU lookup remains available.</p>{isAdmin && <button className="wf-button wf-button-secondary" disabled={!!busy || !connection.shop} onClick={() => void connectShopify(connection.shop)}>{busyLabel("shopify-connect", "Update Shopify permissions")}</button>}</div>}
+            <label className="wf-permission"><input type="checkbox" checked={connection.allowWrites === true} disabled={!isAdmin || !!busy || !connection.scopes?.includes("write_orders")} onChange={event => void setWrites(event.target.checked)} /><span><strong>Allow AI to make store changes</strong><small>Refunds and cancellations still need your approval.</small></span></label>
+            <details className="wf-permission-details"><summary>View granted permissions <ChevronDown size={14} /></summary><div className="wf-scope-list">{connection.scopes?.map(scope => <span key={scope}>{readScope(scope)}</span>)}</div></details>
+            <div className="wf-provider-footer"><span><ShieldCheck size={13} /> Approval protected</span>{isAdmin && <button className="wf-disconnect" disabled={!!busy} onClick={() => void disconnect("shopify")}><Unplug size={13} /> Disconnect</button>}</div>
+          </> : <form onSubmit={event => { event.preventDefault(); void connectShopify(); }}>
+            <label className="wf-field-label" htmlFor="shop-domain">Store domain</label><input id="shop-domain" className="wf-field" value={shop} onChange={event => setShop(event.target.value)} placeholder="your-store.myshopify.com" autoCapitalize="none" spellCheck={false} disabled={!isAdmin || !!busy || !!woo?.connected} required />
+            <p className="wf-field-hint">{woo?.connected ? "WooCommerce is connected. Disconnect it before switching to Shopify." : "Approve access securely on Shopify. No API keys to copy."}</p>
+            <button type="submit" disabled={!isAdmin || !!busy || !shop.trim() || !!woo?.connected} className="wf-button wf-button-primary wf-button-full">{busyLabel("shopify-connect", "Connect Shopify")}</button>
+          </form>}
         </div>
-        {loading ? <p className="mt-6 text-sm text-slate-500">Checking connection…</p> : connection?.connected ? (
-          <div className="mt-6 space-y-5 border-t border-slate-800 pt-5">
-            <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-medium text-white">{connection.name || connection.shop}</p><p className="text-sm text-slate-400">{connection.shop}</p></div>{isAdmin && <button onClick={disconnect} disabled={busy} className="rounded-lg border border-red-900 px-3 py-2 text-sm text-red-300 hover:bg-red-950/40 disabled:opacity-50">Disconnect</button>}</div>
-            <div className="flex flex-wrap gap-2">{(connection.scopes || []).map(scope => <span key={scope} className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300">{scope}</span>)}</div>
-            <label className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
-              <input type="checkbox" checked={connection.allowWrites === true} disabled={!isAdmin || busy || !connection.scopes?.includes("write_orders")} onChange={event => void setWrites(event.target.checked)} className="h-4 w-4 accent-cyan-500" />
-              <span><span className="block text-sm font-medium text-white">Allow AI to perform store changes</span><span className="mt-1 block text-xs text-slate-400">Refunds and order cancellations remain behind the human approval queue.</span></span>
-            </label>
-          </div>
-        ) : (
-          <div className="mt-6 space-y-4 border-t border-slate-800 pt-5">
-            <div className="max-w-xl"><label htmlFor="shop-domain" className="mb-2 block text-sm font-medium text-slate-300">Shopify store domain</label><div className="flex rounded-lg border border-slate-700 bg-slate-950 focus-within:border-cyan-600"><input id="shop-domain" value={shop} onChange={event => setShop(event.target.value)} placeholder="your-store.myshopify.com" className="min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-600" /><span className="self-center pr-3 text-xs text-slate-500">.myshopify.com</span></div><p className="mt-2 text-xs text-slate-500">You’ll be redirected to Shopify to review and approve access. Your app credentials stay on our server.</p></div>
-            <button onClick={beginConnect} disabled={!isAdmin || busy || !shop.trim()} className="rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Redirecting…" : "Connect Shopify"}</button>
-            {!isAdmin && <p className="text-xs text-amber-300">Ask a workspace admin to connect Shopify.</p>}
-          </div>
-        )}
       </section>
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div><h2 className="text-lg font-semibold text-white">WooCommerce</h2><p className="mt-1 text-sm text-slate-400">Read product and order information from your WordPress store.</p></div>
-          {wooConnection && <span className={`rounded-full px-3 py-1 text-xs font-semibold ${wooConnection.connected ? "bg-emerald-950 text-emerald-300" : "bg-slate-800 text-slate-400"}`}>{wooConnection.connected ? "Connected" : "Not connected"}</span>}
+      <section className={`wf-panel wf-provider-card ${woo?.connected ? "is-connected" : ""}`} aria-labelledby="woo-title">
+        <div className="wf-provider-top"><ProviderMark provider="woocommerce" />{status("woocommerce", woo?.connected, woo?.needsReconnect)}</div>
+        <h3 id="woo-title">WooCommerce</h3><p className="wf-provider-description">Connect your WordPress store for product information and inventory answers.</p>
+        <div className="wf-capabilities"><span><Check size={12} /> Product data</span><span><LockKeyhole size={12} /> Read-only access</span></div>
+        {errors.woocommerce && <p role="alert" className="wf-inline-error">{errors.woocommerce}</p>}
+        <div className="wf-provider-content">
+          {loading ? <p className="wf-muted">Checking your store connection...</p> : woo?.connected && !woo.needsReconnect ? <>
+            <div className="wf-connected-account"><span className="wf-account-check"><Check size={16} /></span><div><strong>Your WooCommerce store</strong><span>{woo.storeUrl}</span></div></div>
+            <div className="wf-access-note"><ShieldCheck size={20} /><div><strong>Your store stays in your control.</strong><p>This connection reads store information. It doesn't make changes to your products or orders.</p></div></div>
+            <div className="wf-provider-footer"><span><LockKeyhole size={13} /> Read-only connection</span>{isAdmin && <button className="wf-disconnect" disabled={!!busy} onClick={() => void disconnect("woocommerce")}><Unplug size={13} /> Disconnect</button>}</div>
+          </> : <form onSubmit={event => { event.preventDefault(); void connectWoo(); }}>
+            <label className="wf-field-label" htmlFor="woo-store-url">Store address</label><input id="woo-store-url" type="url" className="wf-field" value={wooStoreUrl} onChange={event => setWooStoreUrl(event.target.value)} placeholder="https://your-store.com" autoCapitalize="none" spellCheck={false} required disabled={!isAdmin || !!busy || !!connection?.connected} />
+            <p className="wf-field-hint">{connection?.connected ? "Shopify is connected. Disconnect it before switching to WooCommerce." : "Approve read-only access on your own WordPress store."}</p>
+            <button type="submit" disabled={!isAdmin || !!busy || !wooStoreUrl.trim() || !!connection?.connected} className="wf-button wf-button-secondary wf-button-full">{busyLabel("woocommerce-connect", woo?.needsReconnect ? "Reconnect WooCommerce" : "Connect WooCommerce")}</button>
+          </form>}
         </div>
-        {wooConnection?.connected ? <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-5">
-          <div><p className="font-medium text-white">{wooConnection.storeUrl}</p><p className="text-sm text-slate-400">Read access verified</p></div>
-          {isAdmin && <button onClick={() => void disconnectWoo()} disabled={busy} className="rounded-lg border border-red-900 px-3 py-2 text-sm text-red-300 disabled:opacity-50">Disconnect</button>}
-        </div> : <div className="mt-6 space-y-4 border-t border-slate-800 pt-5">
-          <div className="max-w-xl"><label htmlFor="woo-store-url" className="mb-2 block text-sm font-medium text-slate-300">WooCommerce store address</label><input id="woo-store-url" type="url" value={wooStoreUrl} onChange={event => setWooStoreUrl(event.target.value)} placeholder="https://your-store.com" className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-600" /><p className="mt-2 text-xs text-slate-500">You’ll be redirected to WordPress to approve read-only store access. API keys stay on the server.</p></div>
-          <button onClick={() => void beginWooConnect()} disabled={!isAdmin || busy || !wooStoreUrl.trim()} className="rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-50">Connect WooCommerce</button>
-          {!isAdmin && <p className="text-xs text-amber-300">Ask a workspace admin to connect WooCommerce.</p>}
-        </div>}
       </section>
-      <section className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-cyan-900/70 bg-cyan-950/20 p-5">
-        <div><h2 className="font-semibold text-white">Next: connect WhatsApp</h2><p className="mt-1 text-sm text-slate-400">Use Meta’s secure signup to connect your business number.</p></div>
-        <a href="/dashboard/settings/whatsapp" className="rounded-lg border border-cyan-800 px-4 py-2 text-sm font-semibold text-cyan-200 hover:bg-cyan-950">Set up WhatsApp</a>
-      </section>
-      <p className="text-xs text-slate-500">Each workspace connects one store per provider. Shopify changes remain off by default, and sensitive actions still need human approval.</p>
-      <p className="text-xs text-slate-500">More connectors can be added here. Shopify write access is off by default and sensitive actions require human approval.</p>
     </div>
-  );
+    <div className="wf-integration-section-heading"><div><span className="wf-step-number">02</span><h2>Customer conversations</h2></div><span>Meet customers where they are</span></div>
+    <section className="wf-panel wf-whatsapp-card"><div className="wf-whatsapp-main"><ProviderMark provider="whatsapp" /><div><div className="wf-whatsapp-title"><h3>WhatsApp Business</h3>{status("whatsapp", whatsapp?.connected, whatsapp?.status === "reconnect_soon")}</div><p>{whatsapp?.connected ? [whatsapp.verifiedName, whatsapp.phoneNumber].filter(Boolean).join(" · ") || "Your business number is connected." : "Connect your business number for AI-assisted customer support."}</p>{errors.whatsapp && <p className="wf-inline-error" role="alert">{errors.whatsapp}</p>}</div></div><Link href="/dashboard/settings/whatsapp" className="wf-button wf-button-secondary">{whatsapp?.connected ? "Manage WhatsApp" : "Set up WhatsApp"}<ArrowUpRight size={15} /></Link></section>
+    <div className="wf-test-callout"><span className="wf-test-icon"><Sparkles size={21} /></span><div><h3>Set your hours. Connect your calendar.</h3><p>Configure your country, timezone and appointment availability.</p></div><Link href="/dashboard/settings/business" className="wf-text-button">Business setup <ArrowRight size={16} /></Link></div>
+    <div className="wf-test-callout"><span className="wf-test-icon"><Check size={21} /></span><div><h3>Continue your bundle setup.</h3><p>Return to your checklist to confirm connections and activate your AI bundle.</p></div><Link href="/dashboard/onboarding" className="wf-text-button">Setup checklist <ArrowRight size={16} /></Link></div>
+    <div className="wf-test-callout"><span className="wf-test-icon"><Sparkles size={21} /></span><div><h3>Connected? Put it to work.</h3><p>Ask your assistant about a product's exact SKU or your workspace activity.</p></div><Link href="/dashboard#assistant" className="wf-text-button">Ask your workforce <ArrowRight size={16} /></Link></div>
+    <p className="wf-integration-footnote"><ShieldCheck size={14} /> Connections belong to this workspace. You choose what your AI can access.</p>
+  </div>;
 }
+function readScope(scope: string) { return scope.replace(/_/g, " ").replace(/^\w/, letter => letter.toUpperCase()); }

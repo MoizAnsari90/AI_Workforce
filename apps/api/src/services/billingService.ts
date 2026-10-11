@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma';
+import { assertSubscription, billingEnforced } from './subscriptionService';
 
 export const billingService = {
   /**
@@ -6,19 +7,16 @@ export const billingService = {
    * Returns true if successful, false if insufficient credits.
    */
   async consumeCredits(tenantId: string, amount: number, description: string): Promise<boolean> {
+    if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('Credit consumption must be a positive integer');
+    // Local development and unconfigured billing retain the usable prototype flow.
+    if (!billingEnforced()) return true;
+    await assertSubscription(tenantId);
     return await prisma.$transaction(async (tx) => {
-      const credits = await tx.tenantCredits.findUnique({
-        where: { tenantId },
-      });
-
-      if (!credits || credits.availableCredits < amount) {
-        return false;
-      }
-
-      await tx.tenantCredits.update({
-        where: { tenantId },
+      const changed = await tx.tenantCredits.updateMany({
+        where: { tenantId, availableCredits: { gte: amount } },
         data: { availableCredits: { decrement: amount } },
       });
+      if (changed.count !== 1) return false;
 
       await tx.creditConsumptionLog.create({
         data: {

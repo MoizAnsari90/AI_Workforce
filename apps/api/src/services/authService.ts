@@ -295,6 +295,7 @@ export async function resolveUserContext(userId: string) {
   return {
     userId: user.id,
     tenantId: user.tenantId,
+    tenantName: user.tenant.name,
     email: user.email,
     role: primaryRole,
     permissions: Array.from(permissionsSet),

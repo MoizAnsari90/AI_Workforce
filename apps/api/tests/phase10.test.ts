@@ -8,7 +8,7 @@ import { prisma } from '../src/lib/prisma';
 // Mock everything
 vi.mock('../src/lib/prisma', () => ({
   prisma: {
-    tenantCredits: { findUnique: vi.fn(), update: vi.fn() },
+    tenantCredits: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     creditConsumptionLog: { create: vi.fn() },
     integrationConfig: { upsert: vi.fn(), findUnique: vi.fn() },
     connectorWebhook: { create: vi.fn() },
@@ -21,7 +21,8 @@ vi.mock('../src/lib/prisma', () => ({
 
 describe('Phase 10 Integration Tests', () => {
   it('Billing: should consume credits', async () => {
-    (prisma.tenantCredits.findUnique as any).mockResolvedValue({ availableCredits: 100 });
+    vi.stubEnv('BILLING_ENFORCEMENT', 'false');
+    (prisma.tenantCredits.updateMany as any).mockResolvedValue({ count: 1 });
     const success = await billingService.consumeCredits('t1', 10, 'Action');
     expect(success).toBe(true);
   });

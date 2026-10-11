@@ -1,31 +1,30 @@
+import { wallTimeToUtc } from './calendarAvailability';
 export interface WorkforcePeriod { start: Date; end: Date; label: string }
-const zone = 'Asia/Karachi';
 const dayMs = 86_400_000;
 
 export function requestsSpecificPeriod(question: string) {
   return /\b(today|yesterday|aaj|aj|kal|pichl[aei]\s+din)\b|\b(?:last|past)\s+7\s+days?\b|\bthis\s+(?:week|month)\b|\blast\s+(?:week|month)\b|\b\d{4}-\d{1,2}-\d{1,2}\b|\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d|\b\d{1,2}\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4}\b/i.test(question);
 }
 
-function localDate(now: Date) {
+function localDate(now: Date, zone: string) {
   const fields = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' })
     .formatToParts(now).reduce<Record<string, string>>((all, part) => { all[part.type] = part.value; return all; }, {});
   return { year: Number(fields.year), month: Number(fields.month), day: Number(fields.day) };
 }
 
-function localMidnight(year: number, month: number, day: number) {
-  // Asia/Karachi has a stable UTC+05:00 offset (no daylight-saving transitions).
-  return new Date(Date.UTC(year, month - 1, day) - 5 * 60 * 60 * 1000);
+function localMidnight(year: number, month: number, day: number, zone: string) {
+  return wallTimeToUtc(year, month, day, 0, 0, zone);
 }
 
-function labelFor(start: Date, end: Date, now: Date, kind: 'day' | 'range' | 'instant') {
+function labelFor(start: Date, end: Date, now: Date, kind: 'day' | 'range' | 'instant', zone: string) {
   const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: zone, day: 'numeric', month: 'short', year: 'numeric' });
   if (kind === 'instant') return 'the past 7 days (through ' + fmt.format(now) + '; ' + zone + ')';
   return kind === 'day' ? fmt.format(start) + ' (' + zone + ')' : fmt.format(start) + ' to ' + fmt.format(new Date(end.getTime() - 1)) + ' (' + zone + ')';
 }
 
-export function parseWorkforcePeriod(question: string, now = new Date()): WorkforcePeriod | null {
+export function parseWorkforcePeriod(question: string, now = new Date(), zone = 'Asia/Karachi'): WorkforcePeriod | null {
   const q = question.toLowerCase();
-  const { year, month, day } = localDate(now);
+  const { year, month, day } = localDate(now, zone);
   const today = new Date(Date.UTC(year, month - 1, day));
   let firstDay: Date | null = null;
   let endDay: Date | null = null;
@@ -62,11 +61,11 @@ export function parseWorkforcePeriod(question: string, now = new Date()): Workfo
   }
   if (instant) {
     const end = now;
-    return { start: new Date(end.getTime() - 7 * dayMs), end, label: labelFor(new Date(end.getTime() - 7 * dayMs), end, now, 'instant') };
+    return { start: new Date(end.getTime() - 7 * dayMs), end, label: labelFor(new Date(end.getTime() - 7 * dayMs), end, now, 'instant', zone) };
   }
   if (!firstDay) return null;
   if (!endDay) endDay = new Date(firstDay.getTime() + dayMs);
-  const start = localMidnight(firstDay.getUTCFullYear(), firstDay.getUTCMonth() + 1, firstDay.getUTCDate());
-  const end = localMidnight(endDay.getUTCFullYear(), endDay.getUTCMonth() + 1, endDay.getUTCDate());
-  return { start, end, label: labelFor(start, end, now, end.getTime() - start.getTime() === dayMs ? 'day' : 'range') };
+  const start = localMidnight(firstDay.getUTCFullYear(), firstDay.getUTCMonth() + 1, firstDay.getUTCDate(), zone);
+  const end = localMidnight(endDay.getUTCFullYear(), endDay.getUTCMonth() + 1, endDay.getUTCDate(), zone);
+  return { start, end, label: labelFor(start, end, now, endDay.getTime() - firstDay.getTime() === dayMs ? 'day' : 'range', zone) };
 }

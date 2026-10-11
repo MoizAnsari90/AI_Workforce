@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { UnauthorizedError } from '../errors/AppError';
 import { resolveUserContext, verifyToken } from '../services/authService';
+import { guardPaidRequest } from './subscriptionMiddleware';
 
 export async function authenticate(req: Request, _res: Response, next: NextFunction) {
   try {
@@ -18,7 +19,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     req.user = userContext;
     req.tenantId = userContext.tenantId;
 
-    next();
+    await guardPaidRequest(req, _res, next);
   } catch (error) {
     next(error);
   }

@@ -102,6 +102,7 @@ export const orchestratorService = {
   },
 
   async advance(tenantId: string, executionId: string, actorId: string) {
+    await (await import('./subscriptionService')).assertSubscription(tenantId);
     const execution = await prisma.workflowExecution.findFirst({ where: { id: executionId, tenantId }, include: { workflow: true, currentNode: { include: { outgoing: { include: { toNode: true } } } } } });
     if (!execution) throw new NotFoundError('Workflow execution not found');
     if (execution.status === 'paused') throw new ConflictError('Workflow execution is paused and needs approval, event, or human resume');

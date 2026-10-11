@@ -1,101 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { ChevronDown, MessageSquareText, Mic, Phone, Search } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext.hooks";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { EmptyState, LoadError, PageHeading, RefreshButton, SearchField, StatusBadge, useWorkspaceResource } from "@/components/workforce/page-kit";
 
-interface VoiceSession {
-  id: string;
-  provider: string;
-  callId: string;
-  status: string;
-  transcript: Array<{ speaker: string; text: string }>;
-  metadata: any;
-  createdAt: string;
-}
+interface VoiceSession { id: string; provider: string; callId: string; status: string; transcript: { speaker: string; text: string }[] | null; createdAt: string }
 
 export default function VoiceLogsPage() {
   const { user } = useAuth();
-  const [sessions, setSessions] = useState<VoiceSession[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!user?.tenantId) return;
-    fetch(`/api/proxy/tenants/${user.tenantId}/voice-sessions`)
-      .then((res) => res.json())
-      .then((json) => {
-        if (json?.data) {
-          setSessions(json.data);
-        }
-      })
-      .catch((err) => console.error("Failed to load voice sessions", err))
-      .finally(() => setLoading(false));
-  }, [user?.tenantId]);
-
-  return (
-    <div className="space-y-8 max-w-7xl mx-auto text-slate-100">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-white font-serif">Real-Time Voice Call Logs</h1>
-        <p className="text-slate-400 text-sm mt-1">
-          Monitor inbound and outbound voice sessions powered by Vapi and Retell AI integrations.
-        </p>
-      </div>
-
-      {loading ? (
-        <div className="text-center py-12 text-slate-400">Loading voice logs...</div>
-      ) : sessions.length === 0 ? (
-        <Card className="border-slate-800 bg-slate-900/60 backdrop-blur text-white">
-          <CardContent className="text-center py-16">
-            <div className="text-3xl mb-2">🎙️</div>
-            <h3 className="text-sm font-semibold text-slate-200">No voice calls recorded yet</h3>
-            <p className="text-xs text-slate-400 max-w-sm mx-auto mt-1">
-              Voice transcripts and summaries will automatically appear here when Vapi or Retell AI triggers a call event webhook.
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {sessions.map((session) => (
-            <Card key={session.id} className="border-slate-800 bg-slate-900/80 backdrop-blur text-white shadow-sm">
-              <CardHeader className="pb-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div>
-                    <CardTitle className="text-sm font-bold text-white flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
-                      Call ID: <span className="font-mono font-medium text-cyan-300">{session.callId}</span>
-                    </CardTitle>
-                    <CardDescription className="text-xs text-slate-400 mt-0.5">
-                      Provider: <span className="font-semibold text-indigo-400">{session.provider}</span> • Date: {new Date(session.createdAt).toLocaleString()}
-                    </CardDescription>
-                  </div>
-                  <span className="px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-semibold self-start">
-                    {session.status.toUpperCase()}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div>
-                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Call Transcript</h4>
-                  {Array.isArray(session.transcript) && session.transcript.length > 0 ? (
-                    <div className="bg-slate-950 text-slate-200 p-4 rounded-xl space-y-2 text-xs font-mono max-h-60 overflow-y-auto border border-slate-800">
-                      {session.transcript.map((t, idx) => (
-                        <div key={idx} className="flex gap-2">
-                          <span className={`font-bold uppercase ${t.speaker === 'agent' ? 'text-cyan-400' : 'text-emerald-400'}`}>
-                            [{t.speaker}]:
-                          </span>
-                          <span className="text-slate-300">{t.text}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">No transcript recorded for this session.</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  const { data, loading, error, refresh } = useWorkspaceResource<VoiceSession[]>(user?.tenantId ? `/api/proxy/tenants/${user.tenantId}/voice-sessions` : undefined);
+  const [query, setQuery] = useState("");
+  const [provider, setProvider] = useState("all");
+  const providers = [...new Set(data?.map(item => item.provider) || [])];
+  const shown = data?.filter(item => (provider === "all" || item.provider === provider) && `${item.callId} ${item.status} ${item.provider}`.toLowerCase().includes(query.toLowerCase())) || [];
+  return <div className="wf-page">
+    <PageHeading eyebrow="EVERY CONVERSATION, IN CONTEXT" title="The voice of your business." description="Review recorded call sessions and follow the conversation, word for word."><RefreshButton loading={loading} onClick={() => void refresh()} /></PageHeading>
+    <div className="wf-feature-banner"><span className="wf-feature-icon"><Mic size={28} /></span><div><h2>A clearer view of every call.</h2><p>Sessions from your connected voice providers appear here when call events are received.</p></div><span className="wf-badge">{data ? `${data.length} recorded sessions` : "Checking sessions"}</span></div>
+    <LoadError error={error} retry={() => void refresh()} />
+    <div className="wf-toolbar"><div className="wf-tabs" aria-label="Voice provider"><button aria-pressed={provider === "all"} onClick={() => setProvider("all")}>All providers</button>{providers.map(item => <button key={item} aria-pressed={provider === item} onClick={() => setProvider(item)}>{item}</button>)}</div><SearchField value={query} onChange={setQuery} placeholder="Search calls" /></div>
+    {!data || !shown.length ? <section className="wf-panel"><EmptyState icon={query ? <Search size={28} /> : <Mic size={30} />} title={!data ? loading ? "Loading conversations…" : "Calls unavailable" : data.length ? "No matching calls." : "Your next conversation starts here."} description={!data ? loading ? "Checking voice sessions in this workspace." : "Retry to load your call sessions." : data.length ? "Try another call ID, status or provider." : "Once your Vapi or Retell integration records a call event, its details and available transcript will appear here."} /></section> : <div className="wf-call-list">{shown.map(item => <details className="wf-panel wf-call" key={item.id}><summary><span className="wf-record-icon wf-tone-blue"><Phone size={19} /></span><div className="wf-call-title"><strong>{item.provider} conversation</strong><span>{new Date(item.createdAt).toLocaleString()}</span></div><StatusBadge status={item.status} /><ChevronDown className="wf-chevron" size={17} /></summary><div className="wf-call-body"><p className="wf-call-id">Call ID: {item.callId}</p><div className="wf-transcript-heading"><MessageSquareText size={16} /><h2>Conversation transcript</h2></div>{Array.isArray(item.transcript) && item.transcript.length ? <div className="wf-transcript">{item.transcript.map((line, index) => <div className={`wf-transcript-line ${line.speaker.toLowerCase() === "agent" ? "is-agent" : ""}`} key={index}><span>{line.speaker}</span><p>{line.text}</p></div>)}</div> : <p className="wf-transcript-empty">No transcript was recorded for this session.</p>}</div></details>)}</div>}
+  </div>;
 }

@@ -14,7 +14,7 @@
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
-    "prisma": "^7.10.0"
+    "prisma": "6.4.1"
   },
   "keywords": [],
   "author": "",

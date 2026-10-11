@@ -41,7 +41,7 @@ export function AuthProvider({ children, router, pathname }: { children: ReactNo
           };
           const tenantObj = {
             id: raw.tenantId,
-            name: raw.tenantName || "Default Workspace",
+            name: raw.tenantName || "Your workspace",
           };
 
           setUser(userObj);
@@ -73,6 +73,19 @@ export function AuthProvider({ children, router, pathname }: { children: ReactNo
         setUser(data.data.user);
         setTenant(data.data.tenant);
         setIsAuthenticated(true);
+        const tenantId = data.data.tenant?.id;
+        if (tenantId) {
+          try {
+            const readinessResponse = await fetch(`/api/proxy/tenants/${tenantId}/onboarding-status`, { cache: "no-store" });
+            const readiness = await readinessResponse.json();
+            if (readinessResponse.ok && readiness?.success && readiness.data?.needsOnboarding) {
+              window.location.href = "/dashboard/onboarding";
+              return;
+            }
+          } catch {
+            // If setup status is unavailable, keep the existing dashboard fallback.
+          }
+        }
         window.location.href = "/dashboard";
       } else {
         const err = await res.json().catch(() => ({}));

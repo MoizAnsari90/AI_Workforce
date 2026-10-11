@@ -20,7 +20,12 @@ import { harnessRouter } from './routes/harnessRoutes';
 import { autonomyRouter } from './routes/autonomyRoutes';
 import { NotFoundError } from './errors/AppError';
 import { prisma } from './lib/prisma';
+import { storeReportRouter } from './routes/storeReportRoutes';
 import { queueService } from './services/queueService';
+import { businessSetupRouter } from './routes/businessSetupRoutes';
+import { nicheWorkflowRouter } from './routes/nicheWorkflowRoutes';
+import { nicheAutomationRouter } from './routes/nicheAutomationRoutes';
+import { billingRouter, billingWebhookRouter } from './routes/billingRoutes';
 
 // Rate Limiters
 const globalLimiter = rateLimit({
@@ -46,14 +51,17 @@ export function createApp() {
 
   // Basic middleware
   app.use(cors());
+  app.disable('x-powered-by');
+  if (process.env.TRUST_PROXY_HOPS) app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS));
+  app.use(billingWebhookRouter);
   app.use('/api/v1/webhook', express.raw({ type: ['application/json', 'application/*+json'], limit: '1mb' }));
   app.use(express.json());
 
   // Request logger
   app.use((req, _res, next) => {
-    logger.debug(`Incoming request: ${req.method} ${req.url}`, {
+    logger.debug(`Incoming request: ${req.method} ${req.path}`, {
       method: req.method,
-      url: req.url,
+      url: req.path,
       ip: req.ip,
     });
     next();
@@ -99,6 +107,11 @@ export function createApp() {
   app.use('/api/v1', globalLimiter);
 
   // Other Routes
+  app.use('/api/v1', businessSetupRouter);
+  app.use('/api/v1', billingRouter);
+  app.use('/api/v1', storeReportRouter);
+  app.use('/api/v1', nicheWorkflowRouter);
+  app.use('/api/v1', nicheAutomationRouter);
   app.use('/api/v1/shopify/oauth', shopifyOAuthRouter);
   app.use('/api/v1/whatsapp/onboarding', whatsappOnboardingRouter);
   app.use('/api/v1/woocommerce', woocommerceRouter);

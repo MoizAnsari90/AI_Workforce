@@ -1,8 +1,8 @@
-import { Queue, Worker, Job } from 'bullmq';
+import { Queue, Worker, Job, UnrecoverableError } from 'bullmq';
 import IORedis from 'ioredis';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
-import { ParsedWhatsAppMessage } from './whatsappService';
+import { ParsedWhatsAppMessage, WhatsAppDeliveryUncertainError } from './whatsappService';
 
 export interface WhatsAppJobPayload {
   tenantId: string;
@@ -57,7 +57,13 @@ function initBullMQ() {
         'whatsapp-incoming-queue',
         async (job: Job<WhatsAppJobPayload>) => {
           if (workerProcessor) {
-            await workerProcessor(job.data);
+            try { await workerProcessor(job.data); }
+            catch (error) {
+              // Meta may have accepted the send before the connection timed out.
+              // BullMQ retries must not send a second customer reply.
+              if (error instanceof WhatsAppDeliveryUncertainError) throw new UnrecoverableError(error.message);
+              throw error;
+            }
           }
         },
         { connection: redisConnection }
