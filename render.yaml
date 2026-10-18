@@ -1,0 +1,51 @@
+# Repository root is the build root: npm workspaces require the root lockfile.
+# Free is a prototype tier; sleeping instances cannot guarantee scheduled work.
+services:
+  - type: web
+    name: ai-workforce-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci --include=dev && npm run build --workspace=@ai-employee/shared && npm run prisma:generate --workspace=@ai-employee/api && npm run build --workspace=@ai-employee/api
+    # Free services do not support preDeployCommand. Fail closed before serving.
+    startCommand: node scripts/run-migrations.cjs && cd apps/api && node dist/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: BACKGROUND_WORKERS_ENABLED
+        value: "true"
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      - key: BILLING_MODE
+        value: disabled
+      - key: BILLING_ENFORCEMENT
+        value: "false"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.8-flash
+      - key: GEMINI_EMBEDDING_MODEL
+        value: gemini-embedding-001
+      - key: JWT_SECRET
+        sync: false
+      - key: INTEGRATION_ENCRYPTION_KEY
+        sync: false
+      - key: MEDICAL_DATA_ENCRYPTION_KEY
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_VERIFY_TOKEN
+        sync: false
+      - key: WEB_APP_URL
+        sync: false
+      - key: PUBLIC_API_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

@@ -9,8 +9,18 @@
   ],
   "scripts": {
     "dev": "concurrently \"npm -w @ai-employee/web run dev\" \"npm -w @ai-employee/api run dev\"",
-    "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "build": "npm run build --workspace=@ai-employee/shared && npm run build --workspace=@ai-employee/api && npm run build --workspace=@ai-employee/web",
+    "test": "npm run test --workspaces --if-present",
+    "test:web:smoke": "node scripts/smoke-web-auth.mjs",
+    "production:preflight": "node scripts/production-preflight.mjs",
+    "predeploy:prepare": "node scripts/prepare-predeployment.mjs",
+    "predeploy:local": "node scripts/verify-local-predeployment.mjs",
+    "predeploy:gemini": "node scripts/verify-gemini.mjs",
+    "predeploy:cloud-check": "node scripts/check-cloud-readiness.mjs",
+    "predeploy:test": "node --test scripts/test-predeployment.mjs",
+    "deploy:firebase:prepare": "node scripts/prepare-firebase-hosting.mjs",
+    "deploy:verify": "node scripts/verify-hosted-deployment.mjs",
+    "deploy:test": "node --test scripts/test-hosting-configuration.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

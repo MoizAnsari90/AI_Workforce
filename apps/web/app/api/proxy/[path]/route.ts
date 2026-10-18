@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { backendUrl } from "@/lib/backend-url";
 
 export async function GET(req: Request, props: { params: Promise<{ path: string }> }) {
   const params = await props.params;
@@ -26,8 +27,7 @@ async function handleProxy(req: Request, pathSegments: string[], method: string)
     const path = pathSegments.join("/");
     const url = new URL(req.url);
     const searchParams = url.searchParams.toString();
-    const base = (process.env.API_INTERNAL_URL || "http://localhost:3001").replace(/\/$/, "");
-    const targetUrl = `${base}/api/v1/${path}${searchParams ? `?${searchParams}` : ""}`;
+    const targetUrl = backendUrl(`/api/v1/${path}${searchParams ? `?${searchParams}` : ""}`);
 
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
@@ -46,6 +46,7 @@ async function handleProxy(req: Request, pathSegments: string[], method: string)
     }
 
     const response = await fetch(targetUrl, {
+      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(25000),
       method,
       headers,
       body,

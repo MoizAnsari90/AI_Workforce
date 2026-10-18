@@ -67,6 +67,10 @@ Remaining risk: this change addresses the registry boundary and agent allowlist 
 
 ### Development Scripts
 
+Production configuration, isolated test databases, and release acceptance are documented in [Production release](docs/PRODUCTION_RELEASE.md).
+
+The active deployment strategy is [Vercel + Render + Firebase Spark Hosting](docs/VERCEL_RENDER_FIREBASE_DEPLOYMENT.md). Local and provider builds do not require gcloud or a GCP billing account. Cloud Run scripts remain an optional legacy deployment path; their billing checks apply only when explicitly running that path.
+
 ```bash
 # Install dependencies
 npm install

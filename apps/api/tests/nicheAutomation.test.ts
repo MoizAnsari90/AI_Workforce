@@ -112,7 +112,11 @@ describe('Reception automation', () => {
   });
   it('keeps customer context in the admin inbox and deduplicates staff replies', async () => {
     await acceptNicheInbound(actor.tenantId, { fromPhone: phone.slice(1), text: 'HUMAN', timestamp: new Date().toISOString(), phoneNumberId: '12345678', metaMessageId: 'staff-inbound' });
-    const inbound = await prisma.nicheDispatch.findFirstOrThrow({ where: { tenantId: actor.tenantId, type: 'inbound' } }); await runNicheDispatch(inbound.id);
+    const inbound = await prisma.nicheDispatch.findFirstOrThrow({ where: { tenantId: actor.tenantId, type: 'inbound' } });
+    // This test drives the worker immediately, rather than waiting for its normal poll.
+    // Make the fixture due independently of database/application clock precision.
+    await prisma.nicheDispatch.update({ where: { id: inbound.id }, data: { dueAt: new Date(Date.now() - 1000) } });
+    await runNicheDispatch(inbound.id);
     const inbox = await request(app).get(base()).set('Authorization', 'Bearer fixture'); expect(inbox.body.data.sessions[0].lastCustomerMessage).toBe('HUMAN');
     const sessionId = inbox.body.data.sessions[0].id; const payload = { text: 'Staff can help with scheduling.', requestId: randomUUID() };
     const first = await request(app).post(`${base()}/sessions/${sessionId}/reply`).set('Authorization', 'Bearer fixture').send(payload);

@@ -1,4 +1,5 @@
 "use client";
+import { useTranslation } from "@/contexts/LanguageContext";
 
 import { useRef, useState } from "react";
 import Link from "next/link";
@@ -10,6 +11,7 @@ import { EmptyState, LoadError, PageHeading, readable, RefreshButton, SearchFiel
 interface Template { id: string; name: string; category: string; description: string; definition?: { nodes?: { type: string; agentName?: string; tool?: string; source?: string; provider?: string }[] } }
 
 export default function TemplatesPage() {
+  const { t } = useTranslation();
   const { user, tenant } = useAuth();
   const tenantId = user?.tenantId || tenant?.id;
   const { data, error, loading, refresh } = useWorkspaceResource<Template[]>("/api/proxy/templates");
@@ -31,16 +33,16 @@ export default function TemplatesPage() {
     finally { lock.current = false; setBusy(null); }
   }
   return <div className="wf-page">
-    <PageHeading eyebrow="BUILD YOUR AI TEAM" title="A head start for better work." description="Choose a workflow template built around the work your business does."><RefreshButton loading={loading} onClick={() => void refresh()} /></PageHeading>
-    <div className="wf-feature-banner"><span className="wf-feature-icon"><Layers3 size={27} /></span><div><h2>Start with a template. Make it your workforce.</h2><p>Each deployment adds a workflow and an agent to this workspace.</p></div><Link className="wf-text-button" href="/dashboard/integrations">Manage connections <ArrowRight size={15} /></Link></div>
+    <PageHeading eyebrow={t("BUILD YOUR AI TEAM")} title={t("A head start for better work.")} description={t("Choose a workflow template built around the work your business does.")}><RefreshButton loading={loading} onClick={() => void refresh()} /></PageHeading>
+    <div className="wf-feature-banner"><span className="wf-feature-icon"><Layers3 size={27} /></span><div><h2>{t("Start with a template. Make it your workforce.")}</h2><p>{t("Each deployment adds a workflow and an agent to this workspace.")}</p></div><Link className="wf-text-button" href="/dashboard/integrations">{t("Manage connections")} <ArrowRight size={15} /></Link></div>
     <LoadError error={error} retry={() => void refresh()} />
-    {notice && <div className={`wf-notice ${notice.error ? "wf-notice-error" : ""}`} role={notice.error ? "alert" : "status"}><span>{notice.text}</span>{!notice.error && <Link className="wf-text-button" href="/dashboard">View team <ArrowRight size={14} /></Link>}</div>}
-    <div className="wf-toolbar"><div className="wf-tabs" aria-label="Template category"><button aria-pressed={category === "all"} onClick={() => setCategory("all")}>All templates</button>{categories.map(item => <button key={item} aria-pressed={category === item} onClick={() => setCategory(item)}>{readable(item)}</button>)}</div><SearchField value={query} onChange={setQuery} placeholder="Search templates" /></div>
-    {!data ? <section className="wf-panel"><EmptyState icon={<Layers3 size={28} />} title={loading ? "Finding your next teammate…" : "Templates unavailable"} description={loading ? "Loading available workflows." : "Retry to load the template library."} /></section> : !shown.length ? <section className="wf-panel"><EmptyState icon={<Sparkles size={28} />} title="No templates found." description="Try another search or category." /></section> : <div className="wf-template-grid">{shown.map((item, index) => {
+    {notice && <div className={`wf-notice ${notice.error ? "wf-notice-error" : ""}`} role={notice.error ? "alert" : "status"}><span>{t(notice.text)}</span>{!notice.error && <Link className="wf-text-button" href="/dashboard">{t("View team")} <ArrowRight size={14} /></Link>}</div>}
+    <div className="wf-toolbar"><div className="wf-tabs" aria-label={t("Template category")}><button aria-pressed={category === "all"} onClick={() => setCategory("all")}>{t("All templates")}</button>{categories.map(item => <button key={item} aria-pressed={category === item} onClick={() => setCategory(item)}>{t(readable(item))}</button>)}</div><SearchField value={query} onChange={setQuery} placeholder={t("Search templates")} /></div>
+    {!data ? <section className="wf-panel"><EmptyState icon={<Layers3 size={28} />} title={loading ? t("Finding your next teammate…") : t("Templates unavailable")} description={loading ? t("Loading available workflows.") : t("Retry to load the template library.")} /></section> : !shown.length ? <section className="wf-panel"><EmptyState icon={<Sparkles size={28} />} title={t("No templates found.")} description={t("Try another search or category.")} /></section> : <div className="wf-template-grid">{shown.map((item, index) => {
       const Icon = item.category.toLowerCase() === "ecommerce" ? ShoppingBag : item.category.toLowerCase() === "healthcare" ? HeartPulse : Building2;
       const nodes = Array.isArray(item.definition?.nodes) ? item.definition.nodes : [];
-      return <article key={item.id} className={`wf-panel wf-template-card wf-template-tone-${index % 3}`}><div className="wf-template-art" aria-hidden="true"><span /><span /><div><Icon size={36} strokeWidth={1.4} /></div><Bot size={23} /></div><div className="wf-template-body"><span className="wf-badge">{readable(item.category.toLowerCase())}</span><h2>{item.name}</h2><p>{item.description}</p><div className="wf-workflow-steps"><p className="wf-small-label">INCLUDED WORKFLOW</p>{nodes.map((node, i) => <div key={i}><span>{String(i + 1).padStart(2, "0")}</span><p>{readable(node.agentName || node.tool || node.source || node.provider || node.type)}</p></div>)}</div><button className={`wf-button wf-button-full ${deployed.includes(item.id) ? "wf-button-secondary" : "wf-button-primary"}`} disabled={!tenantId || busy !== null || deployed.includes(item.id)} onClick={() => void deploy(item)}>{deployed.includes(item.id) ? <Check size={16} /> : <Plus size={16} />}{busy === item.id ? "Adding to workspace…" : deployed.includes(item.id) ? "Added to this workspace" : "Add to workspace"}</button></div></article>;
+      return <article key={item.id} className={`wf-panel wf-template-card wf-template-tone-${index % 3}`}><div className="wf-template-art" aria-hidden="true"><span /><span /><div><Icon size={36} strokeWidth={1.4} /></div><Bot size={23} /></div><div className="wf-template-body"><span className="wf-badge">{t(readable(item.category.toLowerCase()))}</span><h2>{item.name}</h2><p>{item.description}</p><div className="wf-workflow-steps"><p className="wf-small-label">{t("INCLUDED WORKFLOW")}</p>{nodes.map((node, i) => <div key={i}><span>{String(i + 1).padStart(2, "0")}</span><p>{t(readable(node.agentName || node.tool || node.source || node.provider || node.type))}</p></div>)}</div><button className={`wf-button wf-button-full ${deployed.includes(item.id) ? "wf-button-secondary" : "wf-button-primary"}`} disabled={!tenantId || busy !== null || deployed.includes(item.id)} onClick={() => void deploy(item)}>{deployed.includes(item.id) ? <Check size={16} /> : <Plus size={16} />}{busy === item.id ? t("Adding to workspace…") : deployed.includes(item.id) ? t("Added to this workspace") : t("Add to workspace")}</button></div></article>;
     })}</div>}
-    <p className="wf-page-footnote">Templates provide a starting workflow. Store, messaging and voice services need their own connections.</p>
+    <p className="wf-page-footnote">{t("Templates provide a starting workflow. Store, messaging and voice services need their own connections.")}</p>
   </div>;
 }

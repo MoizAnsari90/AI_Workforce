@@ -7,6 +7,31 @@ import { IntegrationService } from '../services/integrationService';
 import { prisma } from '../lib/prisma';
 import { whatsappConnectionState } from '../services/whatsappConnectionState';
 import { getWhatsAppSetupTestStatus, hasRecentWhatsAppDeliveryProof, startWhatsAppSetupTest } from '../services/whatsappSetupTestService';
+import { AppError } from '../errors/AppError';
+
+// Never forward Meta's raw errors: they may contain authorization URLs or tokens.
+async function signupMetaRequest(url: URL | string, options: RequestInit, stage: 'authorization' | 'assets' | 'subscription') {
+  const messages = {
+    authorization: 'Meta could not exchange the login code. Restart setup; if it repeats, check that the App Secret and signup configuration belong to this Meta app.',
+    assets: 'Meta did not grant access to the selected WhatsApp account. Check the signup configuration uses a system-user token, WhatsApp account assets and both WhatsApp permissions.',
+    subscription: 'Meta could not subscribe this app to WhatsApp messages. Check WhatsApp business management permission and the app webhook configuration.',
+  };
+  let response: Response;
+  try {
+    response = await fetch(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(15_000) });
+  } catch {
+    throw new AppError(`Meta could not be reached during ${stage}. Refresh connection status before retrying setup.`, 503, 'WHATSAPP_META_UNAVAILABLE', { stage });
+  }
+  const body = await response.json().catch(() => null) as any;
+  if (!response.ok || !body || body.error) {
+    throw new AppError(messages[stage], 400, 'WHATSAPP_META_REJECTED', {
+      stage,
+      ...(typeof body?.error?.code === 'number' ? { providerCode: body.error.code } : {}),
+      ...(typeof body?.error?.error_subcode === 'number' ? { providerSubcode: body.error.error_subcode } : {}),
+    });
+  }
+  return body;
+}
 
 function signupConfigured() {
   return !!(env.META_APP_ID && env.META_APP_SECRET && env.META_EMBEDDED_SIGNUP_CONFIG_ID && env.META_VERIFY_TOKEN && process.env.INTEGRATION_ENCRYPTION_KEY && process.env.INTEGRATION_ENCRYPTION_KEY.length >= 32);
@@ -101,19 +126,14 @@ whatsappOnboardingRouter.post('/embedded-signup', async (req, res, next) => {
     const graph = `https://graph.facebook.com/${env.META_GRAPH_API_VERSION}`;
     const tokenUrl = new URL(`${graph}/oauth/access_token`);
     tokenUrl.search = new URLSearchParams({ client_id: env.META_APP_ID!, client_secret: env.META_APP_SECRET!, code: input.code }).toString();
-    const tokenResponse = await fetch(tokenUrl, { redirect: 'error', signal: AbortSignal.timeout(15000) });
-    const tokenBody = await tokenResponse.json().catch(() => null) as any;
+    const tokenBody = await signupMetaRequest(tokenUrl, {}, 'authorization');
     const accessToken = tokenBody?.access_token;
-    if (!tokenResponse.ok || typeof accessToken !== 'string' || accessToken.length < 10) {
+    if (typeof accessToken !== 'string' || accessToken.length < 10) {
       return res.status(400).json({ success: false, error: { code: 'WHATSAPP_AUTH_FAILED', message: 'Meta could not authorize this WhatsApp connection. Restart setup and approve access.' } });
     }
     const apiGet = async (path: string) => {
       const url = new URL(`${graph}/${path}`);
-      url.searchParams.set('access_token', accessToken);
-      const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(15000) });
-      const body = await response.json().catch(() => null) as any;
-      if (!response.ok) throw new Error('WhatsApp account verification failed');
-      return body;
+      return signupMetaRequest(url, { headers: { Authorization: `Bearer ${accessToken}` } }, 'assets');
     };
     const [waba, numbers] = await Promise.all([
       apiGet(`${input.wabaId}?fields=id,name`),
@@ -132,12 +152,12 @@ whatsappOnboardingRouter.post('/embedded-signup', async (req, res, next) => {
       WHERE provider = 'whatsapp' AND external_account_id = ${input.phoneNumberId}
         AND tenant_id <> ${req.user!.tenantId} AND is_active = true LIMIT 1`;
     if (otherWorkspace.length) return res.status(409).json({ success: false, error: { code: 'WHATSAPP_NUMBER_IN_USE', message: 'This WhatsApp number is already connected to another workspace.' } });
-    const subscribeResponse = await fetch(`${graph}/${input.wabaId}/subscribed_apps`, {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(15000),
+    const subscription = await signupMetaRequest(`${graph}/${input.wabaId}/subscribed_apps`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ access_token: accessToken }),
-    });
-    if (!subscribeResponse.ok) throw new Error('WhatsApp webhook subscription failed');
+    }, 'subscription');
+    if (subscription.success !== true) throw new AppError('Meta did not confirm WhatsApp webhook subscription. Check app permissions and retry setup.', 400, 'WHATSAPP_SUBSCRIPTION_UNCONFIRMED');
     await IntegrationService.storeCredential({
       tenantId: req.user!.tenantId,
       provider: 'whatsapp',

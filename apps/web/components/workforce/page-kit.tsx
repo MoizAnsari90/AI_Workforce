@@ -1,7 +1,8 @@
 "use client";
+import { useTranslation } from "@/contexts/LanguageContext";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { CircleAlert, RefreshCw, Search } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleX, Clock3, CircleDot, RefreshCw, Search } from "lucide-react";
 import { workforceRequest } from "@/lib/workforce-api";
 
 export function useWorkspaceResource<T>(url: string | undefined, pollMs = 0) {
@@ -27,23 +28,31 @@ export function useWorkspaceResource<T>(url: string | undefined, pollMs = 0) {
 }
 
 export function PageHeading({ eyebrow, title, description, children }: { eyebrow: string; title: string; description: string; children?: ReactNode }) {
-  return <div className="wf-page-heading"><div><p className="wf-eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{children}</div>;
+  const { t } = useTranslation();
+  return <div className="wf-page-heading"><div><p className="wf-eyebrow">{t(eyebrow)}</p><h1>{t(title)}</h1><p>{t(description)}</p></div>{children}</div>;
 }
 export function RefreshButton({ loading, onClick }: { loading: boolean; onClick: () => void }) {
-  return <button className="wf-button wf-button-secondary" disabled={loading} onClick={onClick}><RefreshCw size={15} className={loading ? "wf-spin" : ""} />Refresh</button>;
+  const { t } = useTranslation();
+  return <button className="wf-button wf-button-secondary" disabled={loading} onClick={onClick}><RefreshCw size={15} className={loading ? "wf-spin" : ""} />{t("Refresh")}</button>;
 }
 export function LoadError({ error, retry }: { error: string; retry: () => void }) {
-  return error ? <div className="wf-notice wf-notice-error" role="alert"><CircleAlert size={18} /><span>{error}</span><button className="wf-text-button" onClick={retry}>Retry</button></div> : null;
+  const { t } = useTranslation();
+  return error ? <div className="wf-notice wf-notice-error" role="alert"><CircleAlert size={18} /><span>{t(error)}</span><button className="wf-text-button" onClick={retry}>{t("Retry")}</button></div> : null;
 }
 export function EmptyState({ icon, title, description, children }: { icon: ReactNode; title: string; description: string; children?: ReactNode }) {
-  return <div className="wf-empty-state"><span className="wf-empty-icon">{icon}</span><h2>{title}</h2><p>{description}</p>{children}</div>;
+  const { t } = useTranslation();
+  return <div className="wf-empty-state"><span className="wf-empty-icon">{icon}</span><h2>{t(title)}</h2><p>{t(description)}</p>{children}</div>;
 }
 export function SearchField({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) {
-  return <label className="wf-search"><Search size={17} /><span className="sr-only">{placeholder}</span><input type="search" value={value} onChange={event => onChange(event.target.value)} placeholder={placeholder} /></label>;
+  const { t } = useTranslation();
+  return <label className="wf-search"><Search size={17} /><span className="sr-only">{t(placeholder)}</span><input type="search" value={value} onChange={event => onChange(event.target.value)} placeholder={t(placeholder)} /></label>;
 }
 export function StatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation();
   const positive = ["approved", "completed", "ended", "active", "connected"].includes(status.toLowerCase());
   const pending = ["pending", "in-progress", "queued", "ringing"].includes(status.toLowerCase());
-  return <span className={`wf-badge ${positive ? "wf-badge-mint" : pending ? "wf-badge-amber" : ""}`}>{readable(status)}</span>;
+  const negative = ["failed", "rejected", "error", "cancelled", "canceled"].includes(status.toLowerCase());
+  const Icon = positive ? CircleCheck : pending ? Clock3 : negative ? CircleX : CircleDot;
+  return <span className={`wf-badge ${positive ? "wf-badge-mint" : pending ? "wf-badge-amber" : negative ? "wf-badge-danger" : ""}`}><Icon size={12} aria-hidden="true" />{t(readable(status))}</span>;
 }
 export function readable(value: string) { return value.replace(/[_-]/g, " ").replace(/^\w/, letter => letter.toUpperCase()); }

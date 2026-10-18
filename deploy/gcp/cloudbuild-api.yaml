@@ -1,0 +1,11 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
+    args: ['build', '--target', 'migration', '-f', 'apps/api/Dockerfile', '-t', '${_MIGRATION_IMAGE}', '.']
+  - name: gcr.io/cloud-builders/docker
+    env: ['DOCKER_BUILDKIT=1']
+    args: ['build', '--target', 'runner', '-f', 'apps/api/Dockerfile', '-t', '${_API_IMAGE}', '.']
+images: ['${_MIGRATION_IMAGE}', '${_API_IMAGE}']
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1800s

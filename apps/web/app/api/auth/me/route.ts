@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { backendUrl } from "@/lib/backend-url";
 
 export async function GET() {
   try {
@@ -13,7 +14,8 @@ export async function GET() {
       );
     }
 
-    const response = await fetch("http://localhost:3001/api/v1/auth/me", {
+    const response = await fetch(backendUrl('/api/v1/auth/me'), {
+      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(15000),
       headers: {
         Authorization: `Bearer ${token}`,
       },

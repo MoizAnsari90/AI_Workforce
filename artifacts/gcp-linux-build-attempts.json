@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-17",
+  "status": "BLOCKED",
+  "project": "gen-lang-client-0445651739",
+  "dockerEngine": {
+    "reachableWithAuthorizedHostAccess": true,
+    "version": "29.7.2",
+    "os": "linux",
+    "architecture": "amd64"
+  },
+  "apiMigrationImage": {
+    "status": "BLOCKED",
+    "target": "migration",
+    "failure": "Debian repository DNS resolution failed during base-image apt installation"
+  },
+  "apiServingImage": {
+    "status": "NOT RUN",
+    "reason": "Shares the blocked API base/build stages; BuildKit storage also became read-only"
+  },
+  "webImage": {
+    "status": "BLOCKED",
+    "failure": "BuildKit could not commit the dependency layer: metadata_v2.db read-only file system"
+  },
+  "hostStorage": {
+    "cDriveFreeBytes": 0,
+    "dDriveFreeBytes": 424234655744,
+    "note": "Observed during follow-up diagnostics; the enforcing cause of the DNS failure was not established"
+  },
+  "containerSmoke": "NOT RUN: successful application images are prerequisites",
+  "cloudBuild": "NOT RUN: local gcloud/authentication and real runtime inputs were not supplied",
+  "maintenance": "No global Docker prune, engine restart, volume removal or filesystem repair performed"
+}

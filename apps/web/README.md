@@ -14,7 +14,15 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [https://localhost:3000](https://localhost:3000) with your browser to see the result.
+
+The standard development command uses HTTPS for integrations that require a secure browser origin, such as Meta Login:
+
+```bash
+npm run dev --workspace=@ai-employee/web
+```
+
+Next.js generates a local development certificate. If the browser shows a certificate warning, follow the local certificate setup described in the [Next.js CLI documentation](https://nextjs.org/docs/app/api-reference/cli/next#using-https-during-development) before continuing. Use `npm run dev:http --workspace=@ai-employee/web` only when you specifically need plain HTTP.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

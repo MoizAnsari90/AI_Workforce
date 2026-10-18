@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { corsOrigin } from './config/cors';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { logger } from './utils/logger';
@@ -26,6 +27,7 @@ import { businessSetupRouter } from './routes/businessSetupRoutes';
 import { nicheWorkflowRouter } from './routes/nicheWorkflowRoutes';
 import { nicheAutomationRouter } from './routes/nicheAutomationRoutes';
 import { billingRouter, billingWebhookRouter } from './routes/billingRoutes';
+import { voiceQuestionRouter } from './routes/voiceQuestionRoutes';
 
 // Rate Limiters
 const globalLimiter = rateLimit({
@@ -50,12 +52,15 @@ export function createApp() {
   const app = express();
 
   // Basic middleware
-  app.use(cors());
+  app.use(cors({ origin: corsOrigin }));
   app.disable('x-powered-by');
   if (process.env.TRUST_PROXY_HOPS) app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS));
   app.use(billingWebhookRouter);
   app.use('/api/v1/webhook', express.raw({ type: ['application/json', 'application/*+json'], limit: '1mb' }));
   app.use(express.json());
+
+  // Process liveness is independent of database/Redis outages. /health reports readiness.
+  app.get('/livez', (_req, res) => res.status(200).json({ status: 'alive' }));
 
   // Request logger
   app.use((req, _res, next) => {
@@ -120,6 +125,7 @@ export function createApp() {
   app.use('/api/v1', tenantRouter);
   app.use('/api/v1', salesRouter);
   app.use('/api/v1', marketingRouter);
+  app.use('/api/v1', voiceQuestionRouter);
   app.use('/api/v1', operationsRouter);
   app.use('/api/v1', financeRouter);
   app.use('/api/v1', orchestratorRouter);

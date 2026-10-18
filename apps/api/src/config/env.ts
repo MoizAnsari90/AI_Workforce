@@ -11,13 +11,19 @@ const isTest = process.env.NODE_ENV === 'test';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.coerce.number().default(3001),
+  PORT: z.coerce.number().int().min(1).max(65535).default(isProduction ? 8080 : 3001),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
   JWT_EXPIRES_IN: z.string().default('7d'),
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().default(6379),
+  REDIS_DB: z.coerce.number().int().min(0).max(15).default(0),
   REDIS_PASSWORD: z.string().optional(),
+  REDIS_USERNAME: z.string().optional(),
+  REDIS_URL: z.string().regex(/^rediss?:\/\//).optional(),
+  REDIS_TLS_CA_FILE: z.string().optional(),
+  BACKGROUND_WORKERS_ENABLED: z.enum(['true', 'false']).default('true'),
+  CORS_ORIGINS: z.string().default('http://localhost:3000,https://localhost:3000'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   META_VERIFY_TOKEN: isProduction || isTest ? z.string().min(1, 'META_VERIFY_TOKEN is required') : z.string().optional(),
   META_APP_SECRET: isProduction || isTest ? z.string().min(1, 'META_APP_SECRET is required') : z.string().optional(),
@@ -42,3 +48,9 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+if (isProduction) {
+  const { productionConfigurationFailures } = require('@ai-employee/shared/production-config.cjs');
+  const failures: string[] = productionConfigurationFailures(process.env);
+  if (failures.length) throw new Error(`Invalid production configuration: ${failures.join(', ')}`);
+}

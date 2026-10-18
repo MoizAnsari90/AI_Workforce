@@ -2,15 +2,18 @@ import { Server as HttpServer } from 'http';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { verifyToken } from '../services/authService';
 import { logger } from '../utils/logger';
+import { corsOrigin, isAllowedOrigin } from '../config/cors';
 
 let io: SocketIOServer | null = null;
 
 export function initSocketServer(httpServer: HttpServer): SocketIOServer {
   io = new SocketIOServer(httpServer, {
     cors: {
-      origin: '*',
+      origin: corsOrigin,
       methods: ['GET', 'POST'],
     },
+    // CORS alone does not restrict direct WebSocket upgrades.
+    allowRequest: (req, callback) => callback(null, isAllowedOrigin(req.headers.origin)),
   });
 
   // Socket Authentication Middleware

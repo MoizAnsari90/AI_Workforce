@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import { backendUrl } from "@/lib/backend-url";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const response = await fetch("http://localhost:3001/api/v1/auth/register", {
+    const response = await fetch(backendUrl('/api/v1/auth/register'), {
+      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(15000),
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

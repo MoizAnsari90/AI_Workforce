@@ -1,8 +1,11 @@
 import { Queue, Worker, Job, UnrecoverableError } from 'bullmq';
 import IORedis from 'ioredis';
+import { createHash } from 'node:crypto';
 import { env } from '../config/env';
+import { redisConnectionOptions } from '../config/redis';
 import { logger } from '../utils/logger';
 import { ParsedWhatsAppMessage, WhatsAppDeliveryUncertainError } from './whatsappService';
+import { ServiceUnavailableError } from '../errors/AppError';
 
 export interface WhatsAppJobPayload {
   tenantId: string;
@@ -10,49 +13,56 @@ export interface WhatsAppJobPayload {
 }
 
 let redisConnection: IORedis | null = null;
+let producerConnection: IORedis | null = null;
 let messageQueue: Queue | null = null;
 let messageWorker: Worker | null = null;
 let workerProcessor: ((data: WhatsAppJobPayload) => Promise<void>) | null = null;
-let isRedisAvailable = false;
 
 // Attempt Redis connection
 try {
-  redisConnection = new IORedis({
-    host: env.REDIS_HOST,
-    port: env.REDIS_PORT,
-    password: env.REDIS_PASSWORD || undefined,
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
+  const connectionOptions = {
+    ...redisConnectionOptions(env),
     lazyConnect: true,
+  };
+  redisConnection = new IORedis({
+    ...connectionOptions,
+    maxRetriesPerRequest: null,
+  });
+  // Producers fail promptly during outages. Workers keep reconnecting to recover
+  // persisted jobs; their blocking Redis commands must not have a command timeout.
+  producerConnection = new IORedis({
+    ...connectionOptions,
+    maxRetriesPerRequest: 1,
+    enableOfflineQueue: false,
+    commandTimeout: 5000,
   });
 
   redisConnection.on('error', (err) => {
-    logger.debug('Redis offline or unreachable, using in-memory async fallback queue', {
+    logger.debug('WhatsApp worker Redis unavailable; reconnecting', {
       error: err.message,
     });
-    isRedisAvailable = false;
   });
-
-  redisConnection.connect().then(() => {
-    isRedisAvailable = true;
-    logger.info('Connected to Redis for BullMQ processing');
-    initBullMQ();
-  }).catch(() => {
-    isRedisAvailable = false;
+  producerConnection.on('error', (err) => {
+    logger.debug('WhatsApp queue unavailable; webhook delivery must retry', { error: err.message });
   });
+  redisConnection.on('ready', initBullMQ);
+  producerConnection.on('ready', initBullMQ);
+  void redisConnection.connect().then(initBullMQ).catch(() => {});
+  void producerConnection.connect().then(initBullMQ).catch(() => {});
 } catch {
-  isRedisAvailable = false;
+  logger.error('Could not create WhatsApp Redis connections');
 }
 
 function initBullMQ() {
-  if (!redisConnection || !isRedisAvailable) return;
+  if (!redisConnection || !producerConnection) return;
 
   try {
-    messageQueue = new Queue('whatsapp-incoming-queue', {
-      connection: redisConnection,
-    });
+    if (!messageQueue && producerConnection.status === 'ready') {
+      messageQueue = new Queue('whatsapp-incoming-queue', { connection: producerConnection });
+      messageQueue.on('error', error => logger.error('WhatsApp queue error', { error: error.message }));
+    }
 
-    if (workerProcessor) {
+    if (workerProcessor && !messageWorker && redisConnection.status === 'ready') {
       messageWorker = new Worker(
         'whatsapp-incoming-queue',
         async (job: Job<WhatsAppJobPayload>) => {
@@ -68,9 +78,10 @@ function initBullMQ() {
         },
         { connection: redisConnection }
       );
+      messageWorker.on('error', error => logger.error('WhatsApp worker error', { error: error.message }));
     }
   } catch (err) {
-    logger.warn('Could not initialize BullMQ queue, continuing with asynchronous fallback', {
+    logger.error('Could not initialize durable WhatsApp queue', {
       error: err instanceof Error ? err.message : String(err),
     });
   }
@@ -79,56 +90,41 @@ function initBullMQ() {
 export const queueService = {
   registerProcessor(processor: (data: WhatsAppJobPayload) => Promise<void>) {
     workerProcessor = processor;
-    if (isRedisAvailable && !messageWorker && redisConnection) {
-      initBullMQ();
-    }
+    initBullMQ();
   },
 
   async enqueue(payload: WhatsAppJobPayload): Promise<void> {
     logger.info('Enqueueing incoming WhatsApp message', {
       tenantId: payload.tenantId,
       metaMessageId: payload.message.metaMessageId,
-      redisAvailable: isRedisAvailable,
+      redisAvailable: producerConnection?.status === 'ready',
     });
 
-    if (isRedisAvailable && messageQueue) {
+    if (producerConnection?.status === 'ready' && messageQueue) {
       await messageQueue.add('process-whatsapp-message', payload, {
+        jobId: createHash('sha256').update(JSON.stringify([payload.tenantId, payload.message.metaMessageId])).digest('hex'),
         attempts: 3,
         backoff: {
           type: 'exponential',
           delay: 1000,
         },
-        removeOnComplete: true,
+        // Retain completed IDs for provider redeliveries, with bounded storage.
+        removeOnComplete: { age: 7 * 24 * 60 * 60, count: 100000 },
       });
       return;
     }
 
-    // In-memory asynchronous queue fallback
-    setImmediate(async () => {
-      try {
-        if (workerProcessor) {
-          await workerProcessor(payload);
-        } else {
-          logger.warn('No worker processor registered for incoming queue job', {
-            metaMessageId: payload.message.metaMessageId,
-          });
-        }
-      } catch (err) {
-        logger.error('Failed to process message in fallback queue', {
-          error: err instanceof Error ? err.message : String(err),
-          metaMessageId: payload.message.metaMessageId,
-        });
-      }
-    });
+    throw new ServiceUnavailableError('WhatsApp queue unavailable. Retry webhook delivery.');
   },
 
   getRedisStatus() {
-    return redisConnection?.status || 'disconnected';
+    return messageQueue ? producerConnection?.status || 'disconnected' : 'disconnected';
   },
 
   async close() {
     if (messageWorker) await messageWorker.close();
     if (messageQueue) await messageQueue.close();
+    if (producerConnection) producerConnection.disconnect();
     if (redisConnection) redisConnection.disconnect();
   },
 };

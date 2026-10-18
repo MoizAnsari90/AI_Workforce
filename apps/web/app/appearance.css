@@ -1,0 +1,201 @@
+/* Shared semantic colors: all public, authenticated and fallback screens inherit these. */
+:root {
+  color-scheme: dark;
+  --wf-color-scheme: dark;
+  --wf-bg: #0b131c;
+  --wf-panel: #111d29;
+  --wf-panel-soft: #172735;
+  --wf-raised: #243745;
+  --wf-input: #0d1823;
+  --wf-border: #405665;
+  --wf-control-border: #718797;
+  --wf-text: #f2f6f8;
+  --wf-muted: #b0bfcd;
+  --wf-faint: #a0b0bf;
+  --wf-accent: #8de7c5;
+  --wf-mint: var(--wf-accent);
+  --wf-primary: #94e6c6;
+  --wf-primary-hover: #b0f4d9;
+  --wf-on-primary: #10261d;
+  --wf-accent-soft: #16332e;
+  --wf-accent-border: #568873;
+  --wf-info: #a6caff;
+  --wf-info-bg: #142e48;
+  --wf-info-border: #6c93bd;
+  --wf-warning: #ffcf80;
+  --wf-warning-bg: #382b15;
+  --wf-warning-border: #a6854c;
+  --wf-danger: #ffb2b9;
+  --wf-danger-bg: #3d2029;
+  --wf-danger-border: #b27281;
+  --wf-violet: #d4bcff;
+  --wf-violet-bg: #302742;
+  --wf-violet-border: #9680b8;
+  --wf-shadow-color: #000000;
+  --wf-overlay-color: #ffffff;
+  --wf-focus: #b0f4d9;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --wf-color-scheme: light;
+  --wf-bg: #f4f7fa;
+  --wf-panel: #ffffff;
+  --wf-panel-soft: #edf3f7;
+  --wf-raised: #e1eaf0;
+  --wf-input: #ffffff;
+  --wf-border: #bdcbd5;
+  --wf-control-border: #6c8292;
+  --wf-text: #172b3a;
+  --wf-muted: #475c6c;
+  --wf-faint: #526675;
+  --wf-accent: #086348;
+  --wf-primary: #087456;
+  --wf-primary-hover: #075b43;
+  --wf-on-primary: #ffffff;
+  --wf-accent-soft: #e4f5ee;
+  --wf-accent-border: #648f80;
+  --wf-info: #174e96;
+  --wf-info-bg: #e8f0ff;
+  --wf-info-border: #7899ca;
+  --wf-warning: #805000;
+  --wf-warning-bg: #fff2d6;
+  --wf-warning-border: #aa863c;
+  --wf-danger: #a61c37;
+  --wf-danger-bg: #fff0f2;
+  --wf-danger-border: #bd7f8a;
+  --wf-violet: #654093;
+  --wf-violet-bg: #f2ebfc;
+  --wf-violet-border: #987cbb;
+  --wf-shadow-color: #172b3a;
+  --wf-overlay-color: #172b3a;
+  --wf-focus: #075c9c;
+}
+
+/* Blue / orange accents help distinguish common red-green color confusions.
+   Text and shape cues remain present in every palette. */
+:root[data-palette="accessible"] {
+  --wf-accent: #9bd4ff;
+  --wf-primary: #9bd4ff;
+  --wf-primary-hover: #c1e5ff;
+  --wf-accent-soft: #142f46;
+  --wf-accent-border: #759cb9;
+  --wf-danger: #ffb48c;
+  --wf-danger-bg: #3b291e;
+  --wf-danger-border: #b78c72;
+  --wf-warning: #f4df8a;
+  --wf-warning-bg: #352f18;
+  --wf-warning-border: #a99b62;
+  --wf-on-primary: #10263a;
+}
+:root[data-theme="light"][data-palette="accessible"] {
+  --wf-accent: #075f95;
+  --wf-primary: #075f95;
+  --wf-primary-hover: #064a74;
+  --wf-accent-soft: #e5f2fc;
+  --wf-accent-border: #668ba6;
+  --wf-danger: #934000;
+  --wf-danger-bg: #fff0e4;
+  --wf-danger-border: #b38463;
+  --wf-warning: #705400;
+  --wf-warning-bg: #fff6cf;
+  --wf-warning-border: #99873f;
+  --wf-on-primary: #ffffff;
+}
+
+:root[data-contrast="high"] {
+  --wf-bg: #060b10;
+  --wf-panel: #0a1119;
+  --wf-panel-soft: #111e2b;
+  --wf-raised: #182a3a;
+  --wf-input: #060b10;
+  --wf-text: #ffffff;
+  --wf-muted: #e3edf7;
+  --wf-faint: #d1e0ed;
+  --wf-border: #a7bacb;
+  --wf-control-border: #d1e0ed;
+  --wf-accent-border: var(--wf-accent);
+  --wf-info-border: var(--wf-info);
+  --wf-warning-border: var(--wf-warning);
+  --wf-danger-border: var(--wf-danger);
+  --wf-violet-border: var(--wf-violet);
+}
+:root[data-theme="light"][data-contrast="high"] {
+  --wf-bg: #ffffff;
+  --wf-panel: #ffffff;
+  --wf-panel-soft: #f1f4f7;
+  --wf-raised: #e1e7ed;
+  --wf-input: #ffffff;
+  --wf-text: #07131f;
+  --wf-muted: #162d40;
+  --wf-faint: #263f52;
+  --wf-border: #3e5363;
+  --wf-control-border: #263f52;
+}
+
+/* Match the semantic names used by shared Tailwind UI components. */
+@theme inline {
+  --color-background: var(--wf-bg);
+  --color-foreground: var(--wf-text);
+  --color-card: var(--wf-panel);
+  --color-card-foreground: var(--wf-text);
+  --color-primary: var(--wf-primary);
+  --color-primary-foreground: var(--wf-on-primary);
+  --color-secondary: var(--wf-panel-soft);
+  --color-secondary-foreground: var(--wf-text);
+  --color-accent: var(--wf-accent-soft);
+  --color-accent-foreground: var(--wf-accent);
+  --color-muted-foreground: var(--wf-muted);
+  --color-input: var(--wf-control-border);
+  --color-border: var(--wf-border);
+  --color-ring: var(--wf-focus);
+  --color-destructive: var(--wf-danger-bg);
+  --color-destructive-foreground: var(--wf-danger);
+}
+
+body { background: var(--wf-bg); color: var(--wf-text); }
+::selection { background: var(--wf-primary); color: var(--wf-on-primary); }
+:where(a, button, input, select, textarea, summary):focus-visible { outline: 3px solid var(--wf-focus); outline-offset: 3px; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--wf-primary); }
+
+.wf-appearance { position: relative; flex: none; font: 500 12px/1.5 "Segoe UI", system-ui, sans-serif; }
+.wf-appearance-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 40px; min-height: 40px; padding: 8px 11px; border: 1px solid var(--wf-control-border); border-radius: 9px; background: var(--wf-panel); color: var(--wf-text); cursor: pointer; }
+.wf-appearance-trigger:hover, .wf-appearance-trigger[aria-expanded="true"] { background: var(--wf-panel-soft); border-color: var(--wf-focus); }
+.wf-appearance-panel { position: fixed; z-index: 100; width: 286px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); overflow-y: auto; padding: 18px; border: 1px solid var(--wf-control-border); border-radius: 13px; background: var(--wf-panel); color: var(--wf-text); box-shadow: 0 14px 40px color-mix(in srgb, var(--wf-shadow-color) 24%, transparent); }
+.wf-appearance-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
+.wf-appearance-heading strong { font-size: 14px; }
+.wf-appearance-close { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--wf-text); cursor: pointer; }
+.wf-appearance-close:hover { background: var(--wf-panel-soft); }
+.wf-appearance-panel > label { display: block; color: var(--wf-text); font-size: 12px; margin-bottom: 7px; }
+.wf-appearance-panel select { display: block; width: 100%; height: 40px; margin: 0 0 16px; padding: 7px 9px; border: 1px solid var(--wf-control-border); border-radius: 7px; background: var(--wf-input); color: var(--wf-text); font: inherit; color-scheme: var(--wf-color-scheme); }
+.wf-appearance-panel .wf-appearance-contrast { display: flex; align-items: center; gap: 9px; min-height: 32px; margin-bottom: 9px; }
+.wf-appearance-contrast input { width: 17px; height: 17px; flex: none; }
+.wf-appearance-panel p { color: var(--wf-muted); font-size: 11px; line-height: 1.7; margin: 8px 0 14px; }
+.wf-appearance-reset { min-height: 36px; padding: 6px 0; border: 0; background: transparent; color: var(--wf-accent); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.wf-auth-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.wf-error-page { display: flex; min-height: 100dvh; align-items: center; justify-content: center; flex-direction: column; gap: 18px; padding: 28px; background: var(--wf-bg); color: var(--wf-text); text-align: center; }
+.wf-error-page h1, .wf-error-page h2 { font-size: 28px; font-weight: 650; }
+.wf-error-page p { color: var(--wf-muted); }
+.wf-error-action { display: inline-flex; align-items: center; justify-content: center; padding: 11px 18px; border: 1px solid var(--wf-primary); border-radius: 9px; background: var(--wf-primary); color: var(--wf-on-primary); font: inherit; cursor: pointer; }
+.wf-toast { background: var(--wf-panel); color: var(--wf-text); border-color: var(--wf-info-border); }
+.wf-toast-success { border-color: var(--wf-accent-border); }
+.wf-toast-error { border-color: var(--wf-danger-border); }
+.wf-toast-warning { border-color: var(--wf-warning-border); }
+.wf-toast-icon { color: var(--wf-info); }
+.wf-toast-success .wf-toast-icon { color: var(--wf-accent); }
+.wf-toast-error .wf-toast-icon { color: var(--wf-danger); }
+.wf-toast-warning .wf-toast-icon { color: var(--wf-warning); }
+.wf-toast-close { color: var(--wf-muted); }
+.wf-toast-close:hover { color: var(--wf-text); }
+
+@media (max-width: 640px) {
+  .wf-appearance-trigger > span { display: none; }
+  .wf-topbar-right { gap: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+@media (forced-colors: active) {
+  :root[data-theme][data-palette][data-contrast] { --wf-bg: Canvas; --wf-panel: Canvas; --wf-panel-soft: Canvas; --wf-raised: Canvas; --wf-input: Field; --wf-text: CanvasText; --wf-muted: CanvasText; --wf-faint: CanvasText; --wf-border: ButtonText; --wf-control-border: ButtonText; --wf-accent: LinkText; --wf-accent-soft: Canvas; --wf-accent-border: ButtonText; --wf-info: CanvasText; --wf-info-bg: Canvas; --wf-info-border: ButtonText; --wf-warning: CanvasText; --wf-warning-bg: Canvas; --wf-warning-border: ButtonText; --wf-danger: CanvasText; --wf-danger-bg: Canvas; --wf-danger-border: ButtonText; --wf-violet: CanvasText; --wf-violet-bg: Canvas; --wf-violet-border: ButtonText; --wf-primary: Highlight; --wf-on-primary: HighlightText; --wf-focus: Highlight; }
+  .wf-appearance-trigger, .wf-appearance-panel, .wf-badge { border-color: ButtonText; }
+}

@@ -1,9 +1,11 @@
 @import "tailwindcss";
+@import "./appearance.css";
+@import "./language.css";
 
 @layer base {
   body {
-    background-color: #040914;
-    color: #f1f5f9;
+    background-color: var(--wf-bg);
+    color: var(--wf-text);
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   }
 }

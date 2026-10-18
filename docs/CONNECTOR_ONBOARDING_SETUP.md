@@ -35,7 +35,15 @@ Set the callback URL above in API configuration. The merchant enters the store's
 
 ### WhatsApp
 
-In Meta for Developers, configure Facebook Login for Business with the Embedded Signup configuration whose ID is `META_EMBEDDED_SIGNUP_CONFIG_ID`. Set the app webhook callback to:
+Use a newly created **Embedded Signup v4** Facebook Login for Business configuration and save its ID as `META_EMBEDDED_SIGNUP_CONFIG_ID`. Select the WhatsApp products/assets/permissions required by the app in Meta's configuration builder; the web launch code uses v4's empty `extras` object and does not send the retired v2/v3 `sessionInfoVersion`.
+
+Create the configuration with the **WhatsApp Embedded Signup** login variation, **WhatsApp Cloud API** product, **System-user access token**, **WhatsApp accounts** assets, and `whatsapp_business_management` plus `whatsapp_business_messaging`. A generic user-token Facebook login configuration can approve login without returning a WhatsApp number; replace that configuration rather than retrying it indefinitely. Add the dashboard HTTPS origin to Facebook Login for Business's allowed JavaScript SDK domains and configure the corresponding allowed OAuth redirects. Enable the JavaScript SDK and Web OAuth login. Local development uses `https://localhost:3000`; a public HTTPS tunnel/domain may be needed if Meta does not accept your local origin. Keep the same origin throughout login and signup.
+
+The manually configured `META_ACCESS_TOKEN` is not a substitute for workspace Embedded Signup. The workspace token comes from the authorization-code exchange and is stored encrypted. An expired developer test token must be regenerated for manual Graph API tests, but changing it alone does not repair a signup configuration.
+
+Configuration reference: [Twilio's Meta Embedded Signup v4 configuration steps](https://www.twilio.com/docs/whatsapp/isv/tech-provider-program/integration-guide#add-embedded-signup-to-your-application). This project uses Meta Cloud API directly; Twilio Partner Solution IDs and Twilio account setup do not apply.
+
+Set the app webhook callback to:
 
 ```text
 https://<api-host>/api/v1/webhook/whatsapp
@@ -43,7 +51,7 @@ https://<api-host>/api/v1/webhook/whatsapp
 
 Set the same private value in the callback verification field and `META_VERIFY_TOKEN`. Subscribe the app to the WhatsApp message webhook field. Finish Meta business verification, App Review and permission access for production onboarding; dashboard configuration IDs do not grant production permission by themselves. The embedded flow's event data includes the selected WABA and phone-number IDs; the API exchanges its one-use authorization code server-side, verifies those assets, subscribes the WABA, and stores the token encrypted per workspace.
 
-The implemented flow covers the standard Embedded Signup path. It does not promise WhatsApp Business App coexistence for every existing number. Confirm the account's eligibility and the current Meta-supported coexistence configuration separately. A connected WhatsApp account also has provider-managed billing and messaging-policy requirements.
+The implemented flow covers the standard v4 Embedded Signup path and requires a selected Cloud API phone number before it can save the connection. A WABA-only completion is reported to the user so they can finish number setup. It does not promise WhatsApp Business App coexistence for every existing number. Confirm the account's eligibility and the current Meta-supported coexistence configuration separately. A connected WhatsApp account also has provider-managed billing and messaging-policy requirements.
 
 ## Database rollout
 

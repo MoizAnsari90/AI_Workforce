@@ -1,4 +1,10 @@
 services:
+  preflight:
+    build: { context: ., dockerfile: apps/api/Dockerfile, target: builder }
+    env_file: ${PRODUCTION_ENV_FILE:-.env.production}
+    working_dir: /app
+    command: ["node", "scripts/production-preflight.mjs", "--env-file", "/run/production.env"]
+    volumes: ["${PRODUCTION_ENV_FILE:-./.env.production}:/run/production.env:ro"]
   postgres:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
@@ -15,7 +21,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always", "--maxmemory-policy", "noeviction"]
     volumes: ["production_redis:/data"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -24,15 +30,16 @@ services:
       retries: 5
   migrate:
     build: { context: ., dockerfile: apps/api/Dockerfile, target: builder }
-    env_file: .env.production
+    env_file: ${PRODUCTION_ENV_FILE:-.env.production}
     working_dir: /app/apps/api
     command: ["npx", "prisma", "migrate", "deploy"]
     depends_on:
+      preflight: { condition: service_completed_successfully }
       postgres: { condition: service_healthy }
   api:
     build: { context: ., dockerfile: apps/api/Dockerfile }
     restart: unless-stopped
-    env_file: .env.production
+    env_file: ${PRODUCTION_ENV_FILE:-.env.production}
     environment: { NODE_ENV: production, PORT: 3001, REDIS_HOST: redis, TRUST_PROXY_HOPS: 1 }
     depends_on:
       migrate: { condition: service_completed_successfully }
@@ -47,7 +54,6 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-      args: { API_URL: "http://api:3001" }
     restart: unless-stopped
     environment: { NODE_ENV: production, PORT: 3000, API_URL: "http://api:3001", API_INTERNAL_URL: "http://api:3001", HOSTNAME: "0.0.0.0" }
     depends_on:
@@ -65,7 +71,7 @@ services:
   backup:
     profiles: [maintenance]
     build: { context: ., dockerfile: deploy/Dockerfile.backup }
-    env_file: .env.production
+    env_file: ${PRODUCTION_ENV_FILE:-.env.production}
     volumes: ["production_backups:/backups"]
     command: ["bash", "/ops/backup.sh"]
     depends_on:

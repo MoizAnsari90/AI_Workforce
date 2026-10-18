@@ -1,0 +1,11 @@
+.env
+.env.*
+*.env
+.local
+.vercel
+node_modules
+.next
+*.pem
+*.key
+*-credentials.json
+*-service-account.json

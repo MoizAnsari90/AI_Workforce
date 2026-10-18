@@ -1,6 +1,8 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import { CircleCheck, CircleAlert, Info, TriangleAlert } from "lucide-react";
+import { useTranslation } from '@/contexts/LanguageContext';
 
 export type ToastType = "success" | "error" | "info" | "warning";
 
@@ -24,6 +26,7 @@ const ToastContext = createContext<ToastContextValue>({
 });
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const removeToast = useCallback((id: string) => {
@@ -44,35 +47,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={{ toasts, showToast, removeToast }}>
       {children}
       {/* Toast Render Container */}
-      <div className="fixed top-5 right-5 z-[9999] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+      <div className="fixed top-5 end-5 z-[9999] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
         {toasts.map((toast) => {
-          const typeColors = {
-            success: "border-emerald-500/50 bg-slate-900/95 text-emerald-300 shadow-emerald-500/20",
-            error: "border-red-500/50 bg-slate-900/95 text-red-300 shadow-red-500/20",
-            warning: "border-amber-500/50 bg-slate-900/95 text-amber-300 shadow-amber-500/20",
-            info: "border-cyan-500/50 bg-slate-900/95 text-cyan-300 shadow-cyan-500/20",
-          }[toast.type];
-
-          const typeIcons = {
-            success: "✅",
-            error: "❌",
-            warning: "⚠️",
-            info: "✦",
-          }[toast.type];
+          const Icon = { success: CircleCheck, error: CircleAlert, warning: TriangleAlert, info: Info }[toast.type];
 
           return (
             <div
               key={toast.id}
-              className={`pointer-events-auto p-4 rounded-xl border backdrop-blur-md shadow-2xl flex items-start gap-3 transition-all duration-300 animate-in fade-in slide-in-from-top-2 ${typeColors}`}
+              role={toast.type === "error" || toast.type === "warning" ? "alert" : "status"}
+              className={`wf-toast wf-toast-${toast.type} pointer-events-auto p-4 rounded-xl border shadow-2xl flex items-start gap-3`}
             >
-              <span className="text-base">{typeIcons}</span>
+              <Icon className="wf-toast-icon shrink-0" size={19} aria-hidden="true" />
               <div className="flex-1 text-xs">
-                {toast.title && <div className="font-semibold text-white mb-0.5">{toast.title}</div>}
-                <div className="leading-relaxed">{toast.message}</div>
+                <div className="font-semibold mb-0.5">{t(toast.title || { success: "Success", error: "Error", warning: "Warning", info: "Information" }[toast.type])}</div>
+                <div className="leading-relaxed">{t(toast.message)}</div>
               </div>
               <button
                 onClick={() => removeToast(toast.id)}
-                className="text-slate-400 hover:text-white text-xs ml-1"
+                className="wf-toast-close text-xs ml-1"
+                aria-label={t("Dismiss notification")}
               >
                 ✕
               </button>

@@ -12,7 +12,32 @@ build/
 # Environment files
 .env
 .env.local
+.env.production
 .env.*.local
+.env.*
+!.env.example
+!**/.env.example
+*.env
+!*.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+application_default_credentials.json
+*-credentials.json
+*-service-account.json
+secrets/
+.env.*
+!.env.example
+!**/.env.example
+*.env
+!*.env.example
+*.pem
+*.key
+*-credentials.json
+*-service-account.json
+secrets/
 
 # IDE
 .vscode/
@@ -28,3 +53,23 @@ Thumbs.db
 
 # Local migration metadata backups (never commit database snapshots)
 .local/migration-repairs/
+.local/npm-cache/
+.local/temp/
+.local/gcloud-cli/
+.local/gcloud-config/
+.local/predeployment/
+.local/theme-browser/
+.local/voice-fixture*.wav
+.local/gcp-runtime-deps-check/
+.local/gcp-container-smoke/
+deploy/gcp/*.local.*
+
+# Hosting provider state, CLI installations and generated public landing page
+**/.local/
+.vercel/
+.firebase/
+firebase-debug.log*
+ui-debug.log*
+.local/firebase-cli/
+.local/vercel-cli/
+deploy/firebase/public/

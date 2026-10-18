@@ -1,0 +1,6 @@
+{
+  "LOG_LEVEL": "info",
+  "BILLING_MODE": "disabled",
+  "BILLING_ENFORCEMENT": "false",
+  "META_GRAPH_API_VERSION": "v26.0"
+}

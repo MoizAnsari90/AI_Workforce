@@ -1,13 +1,27 @@
-// Test environment setup
+// Direct Vitest invocation must provide a dedicated DB; npm test provisions it.
+const { assertTestDatabaseUrl } = require('@ai-employee/shared/test-database.cjs');
+assertTestDatabaseUrl(process.env.TEST_DATABASE_URL);
 process.env.NODE_ENV = 'test';
-process.env.DATABASE_URL = 'postgresql://postgres:pakistanf6@localhost:5432/ai_workforce';
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
 process.env.META_VERIFY_TOKEN = 'test_verify_token';
 process.env.META_APP_SECRET = 'test_webhook_secret';
 process.env.META_ACCESS_TOKEN = 'test_access_token';
 process.env.META_PHONE_NUMBER_ID = 'test_phone_number_id';
 process.env.OPENAI_API_KEY = 'test_openai_key';
 process.env.JWT_SECRET = 'test_jwt_secret_at_least_16_chars';
-process.env.REDIS_HOST = 'localhost';
-process.env.REDIS_PORT = '6379';
+process.env.REDIS_HOST = process.env.TEST_REDIS_HOST || '127.0.0.1';
+process.env.REDIS_PORT = process.env.TEST_REDIS_PORT || '6379';
+process.env.REDIS_DB = process.env.TEST_REDIS_DB || '15';
+if (!/^(?:[1-9]|1[0-5])$/.test(process.env.REDIS_DB)) throw new Error('Tests require a separate Redis database numbered 1 through 15');
+process.env.REDIS_PASSWORD = process.env.TEST_REDIS_PASSWORD || '';
+delete process.env.REDIS_URL;
+delete process.env.REDIS_TLS_CA_FILE;
+process.env.CORS_ORIGINS = 'http://localhost:3000,https://localhost:3000';
+process.env.GEMINI_API_KEY = 'test_gemini_key';
+process.env.BILLING_MODE = 'disabled';
+process.env.BILLING_ENFORCEMENT = 'false';
+delete process.env.STRIPE_SECRET_KEY;
+delete process.env.STRIPE_WEBHOOK_SECRET;
 process.env.LOG_LEVEL = 'error';
 process.env.INTEGRATION_ENCRYPTION_KEY = 'test-only-integration-key-not-for-production';
+process.env.MEDICAL_DATA_ENCRYPTION_KEY = 'ab'.repeat(32);

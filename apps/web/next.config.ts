@@ -1,13 +1,9 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: "/api/v1/:path*",
-        destination: `${process.env.API_URL || 'http://localhost:3001'}/api/v1/:path*`,
-      },
-    ];
-  },
-};
+import path from 'node:path';
+import type { NextConfig } from 'next';
 
-module.exports = nextConfig;
+const nextConfig: NextConfig = {
+  // Vercel packages server routes itself; containers retain standalone output.
+  ...(process.env.VERCEL === '1' ? {} : { output: 'standalone' as const }),
+  outputFileTracingRoot: path.join(__dirname, '../..'),
+};
+export default nextConfig;

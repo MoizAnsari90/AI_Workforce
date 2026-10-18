@@ -1,4 +1,5 @@
 "use client";
+import { useTranslation } from "@/contexts/LanguageContext";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -13,6 +14,7 @@ type WhatsAppConnection = { connected: boolean; deliveryVerified?: boolean; phon
 type Provider = "shopify" | "woocommerce" | "whatsapp";
 
 export default function IntegrationsPage() {
+  const { t } = useTranslation();
   const { user, tenant } = useAuth();
   const tenantId = user?.tenantId || tenant?.id;
   const isAdmin = user?.role === "admin";
@@ -101,7 +103,7 @@ export default function IntegrationsPage() {
   });
   const disconnect = async (provider: "shopify" | "woocommerce") => {
     const message = provider === "shopify" ? "Disconnect Shopify? To fully revoke access, also uninstall AI Workforce from Shopify Admin > Apps." : "Disconnect this WooCommerce store from your workspace?";
-    if (!window.confirm(message)) return;
+    if (!window.confirm(t(message))) return;
     await perform(`${provider}-disconnect`, async () => {
       await workforceRequest(provider === "shopify" ? `/api/proxy/tenants/${tenantId}/shopify/connection` : "/api/proxy/woocommerce/connection", { method: "DELETE" });
       if (provider === "shopify") setConnection({ connected: false }); else setWoo({ connected: false });
@@ -115,62 +117,62 @@ export default function IntegrationsPage() {
   });
 
   const status = (provider: Provider, connected?: boolean, reconnect = false) => <span className={`wf-badge ${reconnect || (provider === 'whatsapp' && connected && !whatsapp?.deliveryVerified) ? "wf-badge-amber" : connected && !errors[provider] ? "wf-badge-mint" : ""}`}>
-    {loading ? <><RefreshCw size={11} className="wf-spin" /> Checking</> : !isAdmin ? "Admin access" : errors[provider] ? "Status unavailable" : provider === 'whatsapp' && whatsapp?.status === 'reconnect_required' ? 'Reconnect required' : reconnect ? "Reconnect soon" : provider === 'whatsapp' && connected && whatsapp?.deliveryVerified ? 'Delivery verified' : provider === 'whatsapp' && connected ? 'Connected · Test required' : connected ? <><span className="wf-status-dot" /> Connected</> : "Not connected"}
+    {loading ? <><RefreshCw size={11} className="wf-spin" />  {t("Checking")}</> : !isAdmin ? t("Admin access") : errors[provider] ? t("Status unavailable") : provider === 'whatsapp' && whatsapp?.status === 'reconnect_required' ? t("Reconnect required") : reconnect ? t("Reconnect soon") : provider === 'whatsapp' && connected && whatsapp?.deliveryVerified ? t("Delivery verified") : provider === 'whatsapp' && connected ? t("Connected · Test required") : connected ? <><span className="wf-status-dot" />  {t("Connected")}</> : t("Not connected")}
   </span>;
-  const busyLabel = (action: string, label: string) => <>{busy === action ? <RefreshCw size={15} className="wf-spin" /> : <ArrowUpRight size={15} />}{busy === action ? "Please wait..." : label}</>;
+  const busyLabel = (action: string, label: string) => <>{busy === action ? <RefreshCw size={15} className="wf-spin" /> : <ArrowUpRight size={15} />}{busy === action ? t("Please wait...") : t(label)}</>;
   const storeConnected = Boolean(connection?.connected || woo?.connected);
   const connectionCount = Number(storeConnected) + Number(Boolean(whatsapp?.connected));
 
   return <div className="wf-page wf-integrations-page">
-    <div className="wf-page-heading"><div><p className="wf-eyebrow">YOUR TOOLS, WORKING TOGETHER</p><h1>Connect your <span>business.</span></h1><p>Bring your store and customer conversations into one workspace.</p></div><button className="wf-button wf-button-secondary" disabled={loading || !isAdmin || !!busy} onClick={() => void load()}><RefreshCw size={15} className={loading ? "wf-spin" : ""} /> Refresh status</button></div>
-    <div className="wf-connection-banner"><div className="wf-connection-illustration" aria-hidden="true"><ProviderMark provider="shopify" /><span className="wf-connection-line" /><WorkforceMark /><span className="wf-connection-line" /><ProviderMark provider="whatsapp" /></div><div><h2>A connected business starts here.</h2><p>Choose your store, connect WhatsApp, then ask your workforce a question.</p></div><div className="wf-setup-count"><strong>{loading || !isAdmin || Object.keys(errors).length ? "—" : `${connectionCount}/2`}</strong><span>channels connected</span></div></div>
-    {!isAdmin && user && <div className="wf-notice"><LockKeyhole size={17} /><span>A workspace admin can view and manage these connections.</span></div>}
-    {notice && <div className={`wf-notice ${notice.error ? "wf-notice-error" : ""}`} role={notice.error ? "alert" : "status"}>{notice.error ? <CircleAlert size={17} /> : <Check size={17} />}<span>{notice.message}</span></div>}
-    <div className="wf-integration-section-heading"><div><span className="wf-step-number">01</span><h2>Your online store</h2></div><span>Choose one store for this workspace</span></div>
+    <div className="wf-page-heading"><div><p className="wf-eyebrow">{t("YOUR TOOLS, WORKING TOGETHER")}</p><h1>{t("Connect your")} <span>{t("business.")}</span></h1><p>{t("Bring your store and customer conversations into one workspace.")}</p></div><button className="wf-button wf-button-secondary" disabled={loading || !isAdmin || !!busy} onClick={() => void load()}><RefreshCw size={15} className={loading ? "wf-spin" : ""} />  {t("Refresh status")}</button></div>
+    <div className="wf-connection-banner"><div className="wf-connection-illustration" aria-hidden="true"><ProviderMark provider="shopify" /><span className="wf-connection-line" /><WorkforceMark /><span className="wf-connection-line" /><ProviderMark provider="whatsapp" /></div><div><h2>{t("A connected business starts here.")}</h2><p>{t("Choose your store, connect WhatsApp, then ask your workforce a question.")}</p></div><div className="wf-setup-count"><strong>{loading || !isAdmin || Object.keys(errors).length ? "—" : `${connectionCount}/2`}</strong><span>{t("channels connected")}</span></div></div>
+    {!isAdmin && user && <div className="wf-notice"><LockKeyhole size={17} /><span>{t("A workspace admin can view and manage these connections.")}</span></div>}
+    {notice && <div className={`wf-notice ${notice.error ? "wf-notice-error" : ""}`} role={notice.error ? "alert" : "status"}>{notice.error ? <CircleAlert size={17} /> : <Check size={17} />}<span>{t(notice.message)}</span></div>}
+    <div className="wf-integration-section-heading"><div><span className="wf-step-number">01</span><h2>{t("Your online store")}</h2></div><span>{t("Choose one store for this workspace")}</span></div>
     <div className="wf-store-grid">
       <section className={`wf-panel wf-provider-card ${connection?.connected ? "is-connected" : ""}`} aria-labelledby="shopify-title">
         <div className="wf-provider-top"><ProviderMark provider="shopify" />{status("shopify", connection?.connected)}</div>
-        <h3 id="shopify-title">Shopify</h3><p className="wf-provider-description">Give your workforce access to inventory, orders and approved store actions.</p>
-        <div className="wf-capabilities"><span><Check size={12} /> Inventory lookup</span><span><ShieldCheck size={12} /> Approval controls</span></div>
+        <h3 id="shopify-title">{t("Shopify")}</h3><p className="wf-provider-description">{t("Give your workforce access to inventory, orders and approved store actions.")}</p>
+        <div className="wf-capabilities"><span><Check size={12} />  {t("Inventory lookup")}</span><span><ShieldCheck size={12} />  {t("Approval controls")}</span></div>
         {errors.shopify && <p role="alert" className="wf-inline-error">{errors.shopify}</p>}
         <div className="wf-provider-content">
-          {loading ? <p className="wf-muted">Checking your store connection...</p> : connection?.connected ? <>
-            <div className="wf-connected-account"><span className="wf-account-check"><Check size={16} /></span><div><strong>{connection.name || "Your Shopify store"}</strong><span>{connection.shop}</span></div></div>
-            {!connection.scopes?.some(scope => scope === "read_products" || scope === "write_products") && <div className="wf-inline-error"><p>Product-name search and low-stock reports need product access. Update permissions to enable them; your existing SKU lookup remains available.</p>{isAdmin && <button className="wf-button wf-button-secondary" disabled={!!busy || !connection.shop} onClick={() => void connectShopify(connection.shop)}>{busyLabel("shopify-connect", "Update Shopify permissions")}</button>}</div>}
-            <label className="wf-permission"><input type="checkbox" checked={connection.allowWrites === true} disabled={!isAdmin || !!busy || !connection.scopes?.includes("write_orders")} onChange={event => void setWrites(event.target.checked)} /><span><strong>Allow AI to make store changes</strong><small>Refunds and cancellations still need your approval.</small></span></label>
-            <details className="wf-permission-details"><summary>View granted permissions <ChevronDown size={14} /></summary><div className="wf-scope-list">{connection.scopes?.map(scope => <span key={scope}>{readScope(scope)}</span>)}</div></details>
-            <div className="wf-provider-footer"><span><ShieldCheck size={13} /> Approval protected</span>{isAdmin && <button className="wf-disconnect" disabled={!!busy} onClick={() => void disconnect("shopify")}><Unplug size={13} /> Disconnect</button>}</div>
+          {loading ? <p className="wf-muted">{t("Checking your store connection...")}</p> : connection?.connected ? <>
+            <div className="wf-connected-account"><span className="wf-account-check"><Check size={16} /></span><div><strong>{connection.name || t("Your Shopify store")}</strong><span>{connection.shop}</span></div></div>
+            {!connection.scopes?.some(scope => scope === "read_products" || scope === "write_products") && <div className="wf-inline-error"><p>{t("Product-name search and low-stock reports need product access. Update permissions to enable them; your existing SKU lookup remains available.")}</p>{isAdmin && <button className="wf-button wf-button-secondary" disabled={!!busy || !connection.shop} onClick={() => void connectShopify(connection.shop)}>{busyLabel("shopify-connect", "Update Shopify permissions")}</button>}</div>}
+            <label className="wf-permission"><input type="checkbox" checked={connection.allowWrites === true} disabled={!isAdmin || !!busy || !connection.scopes?.includes("write_orders")} onChange={event => void setWrites(event.target.checked)} /><span><strong>{t("Allow AI to make store changes")}</strong><small>{t("Refunds and cancellations still need your approval.")}</small></span></label>
+            <details className="wf-permission-details"><summary>{t("View granted permissions")} <ChevronDown size={14} /></summary><div className="wf-scope-list">{connection.scopes?.map(scope => <span key={scope}>{readScope(scope)}</span>)}</div></details>
+            <div className="wf-provider-footer"><span><ShieldCheck size={13} />  {t("Approval protected")}</span>{isAdmin && <button className="wf-disconnect" disabled={!!busy} onClick={() => void disconnect("shopify")}><Unplug size={13} />  {t("Disconnect")}</button>}</div>
           </> : <form onSubmit={event => { event.preventDefault(); void connectShopify(); }}>
-            <label className="wf-field-label" htmlFor="shop-domain">Store domain</label><input id="shop-domain" className="wf-field" value={shop} onChange={event => setShop(event.target.value)} placeholder="your-store.myshopify.com" autoCapitalize="none" spellCheck={false} disabled={!isAdmin || !!busy || !!woo?.connected} required />
-            <p className="wf-field-hint">{woo?.connected ? "WooCommerce is connected. Disconnect it before switching to Shopify." : "Approve access securely on Shopify. No API keys to copy."}</p>
+            <label className="wf-field-label" htmlFor="shop-domain">{t("Store domain")}</label><input id="shop-domain" className="wf-field" value={shop} onChange={event => setShop(event.target.value)} placeholder={t("your-store.myshopify.com")} autoCapitalize="none" spellCheck={false} disabled={!isAdmin || !!busy || !!woo?.connected} required />
+            <p className="wf-field-hint">{woo?.connected ? t("WooCommerce is connected. Disconnect it before switching to Shopify.") : t("Approve access securely on Shopify. No API keys to copy.")}</p>
             <button type="submit" disabled={!isAdmin || !!busy || !shop.trim() || !!woo?.connected} className="wf-button wf-button-primary wf-button-full">{busyLabel("shopify-connect", "Connect Shopify")}</button>
           </form>}
         </div>
       </section>
       <section className={`wf-panel wf-provider-card ${woo?.connected ? "is-connected" : ""}`} aria-labelledby="woo-title">
         <div className="wf-provider-top"><ProviderMark provider="woocommerce" />{status("woocommerce", woo?.connected, woo?.needsReconnect)}</div>
-        <h3 id="woo-title">WooCommerce</h3><p className="wf-provider-description">Connect your WordPress store for product information and inventory answers.</p>
-        <div className="wf-capabilities"><span><Check size={12} /> Product data</span><span><LockKeyhole size={12} /> Read-only access</span></div>
+        <h3 id="woo-title">{t("WooCommerce")}</h3><p className="wf-provider-description">{t("Connect your WordPress store for product information and inventory answers.")}</p>
+        <div className="wf-capabilities"><span><Check size={12} />  {t("Product data")}</span><span><LockKeyhole size={12} />  {t("Read-only access")}</span></div>
         {errors.woocommerce && <p role="alert" className="wf-inline-error">{errors.woocommerce}</p>}
         <div className="wf-provider-content">
-          {loading ? <p className="wf-muted">Checking your store connection...</p> : woo?.connected && !woo.needsReconnect ? <>
-            <div className="wf-connected-account"><span className="wf-account-check"><Check size={16} /></span><div><strong>Your WooCommerce store</strong><span>{woo.storeUrl}</span></div></div>
-            <div className="wf-access-note"><ShieldCheck size={20} /><div><strong>Your store stays in your control.</strong><p>This connection reads store information. It doesn't make changes to your products or orders.</p></div></div>
-            <div className="wf-provider-footer"><span><LockKeyhole size={13} /> Read-only connection</span>{isAdmin && <button className="wf-disconnect" disabled={!!busy} onClick={() => void disconnect("woocommerce")}><Unplug size={13} /> Disconnect</button>}</div>
+          {loading ? <p className="wf-muted">{t("Checking your store connection...")}</p> : woo?.connected && !woo.needsReconnect ? <>
+            <div className="wf-connected-account"><span className="wf-account-check"><Check size={16} /></span><div><strong>{t("Your WooCommerce store")}</strong><span>{woo.storeUrl}</span></div></div>
+            <div className="wf-access-note"><ShieldCheck size={20} /><div><strong>{t("Your store stays in your control.")}</strong><p>{t("This connection reads store information. It doesn't make changes to your products or orders.")}</p></div></div>
+            <div className="wf-provider-footer"><span><LockKeyhole size={13} />  {t("Read-only connection")}</span>{isAdmin && <button className="wf-disconnect" disabled={!!busy} onClick={() => void disconnect("woocommerce")}><Unplug size={13} />  {t("Disconnect")}</button>}</div>
           </> : <form onSubmit={event => { event.preventDefault(); void connectWoo(); }}>
-            <label className="wf-field-label" htmlFor="woo-store-url">Store address</label><input id="woo-store-url" type="url" className="wf-field" value={wooStoreUrl} onChange={event => setWooStoreUrl(event.target.value)} placeholder="https://your-store.com" autoCapitalize="none" spellCheck={false} required disabled={!isAdmin || !!busy || !!connection?.connected} />
-            <p className="wf-field-hint">{connection?.connected ? "Shopify is connected. Disconnect it before switching to WooCommerce." : "Approve read-only access on your own WordPress store."}</p>
+            <label className="wf-field-label" htmlFor="woo-store-url">{t("Store address")}</label><input id="woo-store-url" type="url" className="wf-field" value={wooStoreUrl} onChange={event => setWooStoreUrl(event.target.value)} placeholder="https://your-store.com" autoCapitalize="none" spellCheck={false} required disabled={!isAdmin || !!busy || !!connection?.connected} />
+            <p className="wf-field-hint">{connection?.connected ? t("Shopify is connected. Disconnect it before switching to WooCommerce.") : t("Approve read-only access on your own WordPress store.")}</p>
             <button type="submit" disabled={!isAdmin || !!busy || !wooStoreUrl.trim() || !!connection?.connected} className="wf-button wf-button-secondary wf-button-full">{busyLabel("woocommerce-connect", woo?.needsReconnect ? "Reconnect WooCommerce" : "Connect WooCommerce")}</button>
           </form>}
         </div>
       </section>
     </div>
-    <div className="wf-integration-section-heading"><div><span className="wf-step-number">02</span><h2>Customer conversations</h2></div><span>Meet customers where they are</span></div>
-    <section className="wf-panel wf-whatsapp-card"><div className="wf-whatsapp-main"><ProviderMark provider="whatsapp" /><div><div className="wf-whatsapp-title"><h3>WhatsApp Business</h3>{status("whatsapp", whatsapp?.connected, whatsapp?.status === "reconnect_soon")}</div><p>{whatsapp?.connected ? [whatsapp.verifiedName, whatsapp.phoneNumber].filter(Boolean).join(" · ") || "Your business number is connected." : "Connect your business number for AI-assisted customer support."}</p>{errors.whatsapp && <p className="wf-inline-error" role="alert">{errors.whatsapp}</p>}</div></div><Link href="/dashboard/settings/whatsapp" className="wf-button wf-button-secondary">{whatsapp?.connected ? "Manage WhatsApp" : "Set up WhatsApp"}<ArrowUpRight size={15} /></Link></section>
-    <div className="wf-test-callout"><span className="wf-test-icon"><Sparkles size={21} /></span><div><h3>Set your hours. Connect your calendar.</h3><p>Configure your country, timezone and appointment availability.</p></div><Link href="/dashboard/settings/business" className="wf-text-button">Business setup <ArrowRight size={16} /></Link></div>
-    <div className="wf-test-callout"><span className="wf-test-icon"><Check size={21} /></span><div><h3>Continue your bundle setup.</h3><p>Return to your checklist to confirm connections and activate your AI bundle.</p></div><Link href="/dashboard/onboarding" className="wf-text-button">Setup checklist <ArrowRight size={16} /></Link></div>
-    <div className="wf-test-callout"><span className="wf-test-icon"><Sparkles size={21} /></span><div><h3>Connected? Put it to work.</h3><p>Ask your assistant about a product's exact SKU or your workspace activity.</p></div><Link href="/dashboard#assistant" className="wf-text-button">Ask your workforce <ArrowRight size={16} /></Link></div>
-    <p className="wf-integration-footnote"><ShieldCheck size={14} /> Connections belong to this workspace. You choose what your AI can access.</p>
+    <div className="wf-integration-section-heading"><div><span className="wf-step-number">02</span><h2>{t("Customer conversations")}</h2></div><span>{t("Meet customers where they are")}</span></div>
+    <section className="wf-panel wf-whatsapp-card"><div className="wf-whatsapp-main"><ProviderMark provider="whatsapp" /><div><div className="wf-whatsapp-title"><h3>{t("WhatsApp Business")}</h3>{status("whatsapp", whatsapp?.connected, whatsapp?.status === "reconnect_soon")}</div><p>{whatsapp?.connected ? [whatsapp.verifiedName, whatsapp.phoneNumber].filter(Boolean).join(" · ") || t("Your business number is connected.") : t("Connect your business number for AI-assisted customer support.")}</p>{errors.whatsapp && <p className="wf-inline-error" role="alert">{errors.whatsapp}</p>}</div></div><Link href="/dashboard/settings/whatsapp" className="wf-button wf-button-secondary">{whatsapp?.connected ? t("Manage WhatsApp") : t("Set up WhatsApp")}<ArrowUpRight size={15} /></Link></section>
+    <div className="wf-test-callout"><span className="wf-test-icon"><Sparkles size={21} /></span><div><h3>{t("Set your hours. Connect your calendar.")}</h3><p>{t("Configure your country, timezone and appointment availability.")}</p></div><Link href="/dashboard/settings/business" className="wf-text-button">{t("Business setup")} <ArrowRight size={16} /></Link></div>
+    <div className="wf-test-callout"><span className="wf-test-icon"><Check size={21} /></span><div><h3>{t("Continue your bundle setup.")}</h3><p>{t("Return to your checklist to confirm connections and activate your AI bundle.")}</p></div><Link href="/dashboard/onboarding" className="wf-text-button">{t("Setup checklist")} <ArrowRight size={16} /></Link></div>
+    <div className="wf-test-callout"><span className="wf-test-icon"><Sparkles size={21} /></span><div><h3>{t("Connected? Put it to work.")}</h3><p>{t("Ask your assistant about a product's exact SKU or your workspace activity.")}</p></div><Link href="/dashboard#assistant" className="wf-text-button">{t("Ask your workforce")} <ArrowRight size={16} /></Link></div>
+    <p className="wf-integration-footnote"><ShieldCheck size={14} />  {t("Connections belong to this workspace. You choose what your AI can access.")}</p>
   </div>;
 }
 function readScope(scope: string) { return scope.replace(/_/g, " ").replace(/^\w/, letter => letter.toUpperCase()); }
