@@ -1,0 +1,12 @@
+.vercel
+.env
+.env.*
+*.env
+node_modules
+dist
+tests
+*.log
+*.pem
+*.key
+*-credentials.json
+*-service-account.json

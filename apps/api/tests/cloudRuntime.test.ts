@@ -12,6 +12,15 @@ describe('Managed Redis configuration', () => {
     expect(redisConnectionOptions({ ...local, REDIS_URL: 'redis://10.0.0.5:6379/2' })).toEqual({ host: '10.0.0.5', port: 6379, db: 2, username: undefined, password: undefined });
     expect(redisConnectionOptions(local)).toMatchObject({ host: 'redis', db: 0 });
   });
+  it('accepts Upstash Redis TCP/TLS credentials on database zero', () => {
+    expect(redisConnectionOptions({ ...local, REDIS_URL: 'rediss://default:encoded%40password@unit.upstash.io:6379/0' })).toMatchObject({
+      host: 'unit.upstash.io', port: 6379, db: 0, username: 'default', password: 'encoded@password',
+      tls: { rejectUnauthorized: true, servername: 'unit.upstash.io' },
+    });
+    for (const url of ['https://unit.upstash.io', 'redis://default:private@unit.upstash.io:6379', 'rediss://default:private@unit.upstash.io:6379/1', 'rediss://unit.upstash.io:6379']) {
+      expect(() => redisConnectionOptions({ ...local, REDIS_URL: url })).toThrow('Invalid REDIS_URL');
+    }
+  });
   it('rejects invalid URLs without exposing credentials', () => {
     for (const url of ['https://default:private@cache.test', 'redis://default:private@cache.test/99', 'redis://default:private@cache.test/invalid', 'rediss://default:private@cache.test/0?rejectUnauthorized=false']) {
       expect(() => redisConnectionOptions({ ...local, REDIS_URL: url })).toThrow('Invalid REDIS_URL');

@@ -1,5 +1,7 @@
 datasource db {
   provider = "postgresql"
+  // Neon: use the pooled (-pooler) TLS URL at runtime. The migration wrapper
+  // selects DIRECT_DATABASE_URL / DATABASE_URL_UNPOOLED for schema operations.
   url      = env("DATABASE_URL")
 }
 

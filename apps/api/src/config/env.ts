@@ -22,7 +22,7 @@ const envSchema = z.object({
   REDIS_USERNAME: z.string().optional(),
   REDIS_URL: z.string().regex(/^rediss?:\/\//).optional(),
   REDIS_TLS_CA_FILE: z.string().optional(),
-  BACKGROUND_WORKERS_ENABLED: z.enum(['true', 'false']).default('true'),
+  BACKGROUND_WORKERS_ENABLED: z.enum(['true', 'false']).default(process.env.VERCEL === '1' ? 'false' : 'true'),
   CORS_ORIGINS: z.string().default('http://localhost:3000,https://localhost:3000'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   META_VERIFY_TOKEN: isProduction || isTest ? z.string().min(1, 'META_VERIFY_TOKEN is required') : z.string().optional(),
@@ -48,6 +48,10 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+if (process.env.VERCEL === '1' && env.BACKGROUND_WORKERS_ENABLED === 'true') {
+  throw new Error('Vercel Functions cannot host continuous BullMQ consumers or schedulers. Set BACKGROUND_WORKERS_ENABLED=false and deploy a separate worker.');
+}
 
 if (isProduction) {
   const { productionConfigurationFailures } = require('@ai-employee/shared/production-config.cjs');

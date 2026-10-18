@@ -1,5 +1,7 @@
 # AI Workforce deployment: Vercel, Render and Firebase Hosting
 
+The current no-card datastore/API preparation is documented in [Neon + Upstash + API deployment](NEON_UPSTASH_API_DEPLOYMENT.md). Render requests returned HTTP 402 for this account. The Render setup below is retained as an optional alternative and is not the current no-card deployment path.
+
 ## Architecture and current status
 
 The active deployment path needs no GCP billing account, Cloud Build, Artifact Registry or Secret Manager. Standard npm builds never call gcloud. The old Cloud Run commands remain an optional alternative, with their valid billing requirement intact; do not run them for this deployment.

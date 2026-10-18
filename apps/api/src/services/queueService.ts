@@ -47,7 +47,6 @@ try {
   });
   redisConnection.on('ready', initBullMQ);
   producerConnection.on('ready', initBullMQ);
-  void redisConnection.connect().then(initBullMQ).catch(() => {});
   void producerConnection.connect().then(initBullMQ).catch(() => {});
 } catch {
   logger.error('Could not create WhatsApp Redis connections');
@@ -90,6 +89,8 @@ function initBullMQ() {
 export const queueService = {
   registerProcessor(processor: (data: WhatsAppJobPayload) => Promise<void>) {
     workerProcessor = processor;
+    // HTTP-only/serverless processes do not need a consumer connection.
+    if (redisConnection?.status === 'wait') void redisConnection.connect().then(initBullMQ).catch(() => {});
     initBullMQ();
   },
 

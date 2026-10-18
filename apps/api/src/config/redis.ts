@@ -19,6 +19,9 @@ export function redisConnectionOptions(config: RedisConfig): RedisOptions {
     if (!['redis:', 'rediss:'].includes(url.protocol) || !url.hostname || url.search || url.hash ||
       !/^\/(?:\d+)?$/.test(url.pathname || '/') || !Number.isInteger(db) || db < 0 || db > 15 || port < 1 || port > 65535) throw new Error();
     if (config.REDIS_TLS_CA_FILE && url.protocol !== 'rediss:') throw new Error();
+    // Upstash's BullMQ/ioredis endpoint is Redis TCP over TLS, not its REST URL.
+    const upstash = url.hostname.endsWith('.upstash.io');
+    if (upstash && (url.protocol !== 'rediss:' || db !== 0 || !url.password)) throw new Error();
     return {
       host: url.hostname.replace(/^\[|\]$/g, ''), port, db,
       username: url.username ? decodeURIComponent(url.username) : undefined,

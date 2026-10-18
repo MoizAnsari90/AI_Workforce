@@ -20,7 +20,7 @@
     "predeploy:test": "node --test scripts/test-predeployment.mjs",
     "deploy:firebase:prepare": "node scripts/prepare-firebase-hosting.mjs",
     "deploy:verify": "node scripts/verify-hosted-deployment.mjs",
-    "deploy:test": "node --test scripts/test-hosting-configuration.mjs"
+    "deploy:test": "node --test scripts/test-hosting-configuration.mjs scripts/test-neon-migrations.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",
