@@ -5,30 +5,42 @@ import { logger } from '../utils/logger';
 import { recordAuditLog } from './auditService';
 import crypto from 'crypto';
 
-const ENCRYPTION_KEY = process.env.INTEGRATION_ENCRYPTION_KEY;
-const IV_LENGTH = 16;
+const ENCRYPTION_VERSION = 'v2';
+const GCM_IV_LENGTH = 12;
 
-function encrypt(text: string): string {
-  if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length < 32) throw new Error('Set INTEGRATION_ENCRYPTION_KEY to a private random value of at least 32 characters');
-  // Simple AES-256-CBC encryption for credential storage security
-  const key = crypto.createHash('sha256').update(String(ENCRYPTION_KEY)).digest();
-  const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return iv.toString('hex') + ':' + encrypted;
+function encryptionKey(): Buffer {
+  const value = process.env.INTEGRATION_ENCRYPTION_KEY;
+  if (!value || value.length < 32) throw new Error('Set INTEGRATION_ENCRYPTION_KEY to a private random value of at least 32 characters');
+  return crypto.createHash('sha256').update(value, 'utf8').digest();
 }
 
-function decrypt(text: string): string {
-  if (!ENCRYPTION_KEY || ENCRYPTION_KEY.length < 32) throw new Error('Set INTEGRATION_ENCRYPTION_KEY to a private random value of at least 32 characters');
+function encrypt(text: string): string {
+  const iv = crypto.randomBytes(GCM_IV_LENGTH);
+  const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey(), iv);
+  const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()]);
+  return [ENCRYPTION_VERSION, iv.toString('hex'), cipher.getAuthTag().toString('hex'), encrypted.toString('hex')].join(':');
+}
+
+function decrypt(text: string): { plaintext: string; legacy: boolean } {
+  const key = encryptionKey();
   const parts = text.split(':');
-  const iv = Buffer.from(parts.shift()!, 'hex');
-  const encryptedText = parts.join(':');
-  const key = crypto.createHash('sha256').update(String(ENCRYPTION_KEY)).digest();
-  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
-  let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
+  if (parts[0] === ENCRYPTION_VERSION) {
+    if (parts.length !== 4 || !/^[a-f0-9]{24}$/i.test(parts[1]) || !/^[a-f0-9]{32}$/i.test(parts[2]) || !/^(?:[a-f0-9]{2})+$/i.test(parts[3])) {
+      throw new Error('Invalid encrypted credential format');
+    }
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(parts[1], 'hex'));
+    decipher.setAuthTag(Buffer.from(parts[2], 'hex'));
+    const plaintext = Buffer.concat([decipher.update(Buffer.from(parts[3], 'hex')), decipher.final()]).toString('utf8');
+    return { plaintext, legacy: false };
+  }
+
+  // Read old CBC records during rollout, then transparently re-encrypt them as authenticated GCM.
+  if (parts.length !== 2 || !/^[a-f0-9]{32}$/i.test(parts[0]) || !/^(?:[a-f0-9]{2})+$/i.test(parts[1])) {
+    throw new Error('Invalid encrypted credential format');
+  }
+  const decipher = crypto.createDecipheriv('aes-256-cbc', key, Buffer.from(parts[0], 'hex'));
+  const plaintext = Buffer.concat([decipher.update(Buffer.from(parts[1], 'hex')), decipher.final()]).toString('utf8');
+  return { plaintext, legacy: true };
 }
 
 export interface StoreCredentialParams {
@@ -92,8 +104,19 @@ export class IntegrationService {
 
     try {
       const encryptedObj = credential.encryptedConfig as { data: string };
-      const decryptedString = decrypt(encryptedObj.data);
-      return JSON.parse(decryptedString);
+      const decrypted = decrypt(encryptedObj.data);
+      const config = JSON.parse(decrypted.plaintext) as Record<string, unknown>;
+      if (decrypted.legacy) {
+        try {
+          await prisma.externalIntegrationCredential.updateMany({
+            where: { id: credential.id, tenantId, isActive: true, encryptedConfig: { equals: credential.encryptedConfig as Prisma.InputJsonValue } },
+            data: { encryptedConfig: { data: encrypt(JSON.stringify(config)) } },
+          });
+        } catch (migrationError) {
+          logger.warn('Legacy integration credential encryption upgrade deferred', { tenantId, provider, error: migrationError instanceof Error ? migrationError.message : String(migrationError) });
+        }
+      }
+      return config;
     } catch (error) {
       logger.error('Failed to decrypt integration credential', { tenantId, provider, error: error instanceof Error ? error.message : String(error) });
       throw new Error('Credential decryption failed');
@@ -108,7 +131,7 @@ export class IntegrationService {
     });
     if (!current?.isActive) return false;
     const encrypted = current.encryptedConfig as { data: string };
-    if (!isDeepStrictEqual(JSON.parse(decrypt(encrypted.data)), expected)) return false;
+    if (!isDeepStrictEqual(JSON.parse(decrypt(encrypted.data).plaintext), expected)) return false;
     const updated = await prisma.externalIntegrationCredential.updateMany({
       where: { id: current.id, tenantId, isActive: true, encryptedConfig: { equals: current.encryptedConfig as Prisma.InputJsonValue } },
       data: { encryptedConfig: { data: encrypt(JSON.stringify(config)) } },
