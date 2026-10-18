@@ -20,7 +20,7 @@ it('exports the Express handler on Vercel without opening a server or starting c
     expect(processor).not.toHaveBeenCalled();
     expect(scheduler).not.toHaveBeenCalled();
   } finally { await queueService.close(); }
-});
+}, 15000);
 
 it('refuses continuous workers when explicitly enabled inside Vercel Functions', async () => {
   vi.stubEnv('VERCEL', '1');

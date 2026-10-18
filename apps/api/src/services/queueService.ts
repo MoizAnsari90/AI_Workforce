@@ -87,6 +87,33 @@ function initBullMQ() {
 }
 
 export const queueService = {
+  async drainOnce(processor: (data: WhatsAppJobPayload) => Promise<void>, windowMs = 20000, maxJobs = 5, queueName = 'whatsapp-incoming-queue') {
+    // A callback owns this consumer only until its bounded batch ends. BullMQ
+    // retains delayed jobs and renews locks while active jobs execute.
+    const worker = new Worker<WhatsAppJobPayload>(queueName, async job => {
+      try { await processor(job.data); }
+      catch (error) {
+        if (error instanceof WhatsAppDeliveryUncertainError) throw new UnrecoverableError(error.message);
+        throw error;
+      }
+    }, { connection: { ...redisConnectionOptions(env), maxRetriesPerRequest: null, connectTimeout: 5000, retryStrategy: attempt => attempt < 3 ? 250 : null }, autorun: false, concurrency: 1 });
+    let completed = 0;
+    let stop!: () => void;
+    let fail!: (error: Error) => void;
+    const finished = new Promise<void>((resolve, reject) => { stop = resolve; fail = reject; });
+    worker.on('drained', stop);
+    worker.on('error', fail);
+    const count = () => { completed++; if (completed >= maxJobs) stop(); };
+    worker.on('completed', count);
+    worker.on('failed', count);
+    const timer = setTimeout(stop, windowMs);
+    const running = worker.run();
+    void running.catch(fail);
+    try { await finished; }
+    finally { clearTimeout(timer); await worker.close(); await running; }
+    return { handled: completed };
+  },
+
   registerProcessor(processor: (data: WhatsAppJobPayload) => Promise<void>) {
     workerProcessor = processor;
     // HTTP-only/serverless processes do not need a consumer connection.

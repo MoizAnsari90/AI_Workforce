@@ -113,14 +113,14 @@ export async function runNicheDispatch(id: string) {
   }
 }
 let timer: NodeJS.Timeout | undefined; let running: Promise<void> | null = null;
-export async function tickNicheAutomation() {
+export async function tickNicheAutomation(options?: { limit: number; deadline: number }) {
   const expired = new Date(Date.now() - 5 * 60_000);
   await prisma.nicheDispatch.deleteMany({ where: { type: 'provider_delivery_receipt', dueAt: { lt: new Date() } } });
   await prisma.nicheDispatch.updateMany({ where: { status: 'processing', type: 'inbound', updatedAt: { lt: expired } }, data: { status: 'pending' } });
   await prisma.nicheDispatch.updateMany({ where: { status: 'processing', type: { not: 'inbound' }, updatedAt: { lt: expired } }, data: { status: 'unknown' } });
   await scheduleNicheReminders();
-  const jobs = await prisma.nicheDispatch.findMany({ where: { status: 'pending', dueAt: { lte: new Date() } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 20 });
-  for (const job of jobs) await runNicheDispatch(job.id);
+  const jobs = await prisma.nicheDispatch.findMany({ where: { status: 'pending', dueAt: { lte: new Date() } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: options?.limit ?? 20 });
+  for (const job of jobs) { if (options && Date.now() >= options.deadline) break; await runNicheDispatch(job.id); }
 }
 export function startNicheAutomation() { if (timer) return; timer = setInterval(() => { if (running) return; running = tickNicheAutomation().catch(() => { logger.warn('Niche automation worker could not complete this cycle'); }).finally(() => { running = null; }); }, 5000); timer.unref(); }
 export async function stopNicheAutomation() { if (timer) clearInterval(timer); timer = undefined; await running; }

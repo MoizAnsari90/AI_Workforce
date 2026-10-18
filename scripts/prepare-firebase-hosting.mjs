@@ -22,7 +22,7 @@ export function prepareFirebaseHosting(value, outputRoot) {
 </style></head><body><main><small>YOUR AI, AT WORK</small><h1>AI Workforce</h1>
 <p>Bring your team, approvals and business operations into focus. Ask questions in text or voice and get answers grounded in your workspace.</p>
 <a href="${escaped}/dashboard">Open your workspace &rarr;</a>
-<footer>Gemini powers AI features. This entry page is served by Firebase Hosting; the dashboard runs on Vercel and the API on Render.</footer>
+<footer>Gemini powers AI features. This entry page is served by Firebase Hosting; the dashboard and API run on Vercel.</footer>
 </main></body></html>`;
   fs.mkdirSync(outputRoot, { recursive: true });
   fs.writeFileSync(path.join(outputRoot, 'index.html'), html);

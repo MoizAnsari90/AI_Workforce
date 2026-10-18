@@ -28,6 +28,7 @@ import { nicheWorkflowRouter } from './routes/nicheWorkflowRoutes';
 import { nicheAutomationRouter } from './routes/nicheAutomationRoutes';
 import { billingRouter, billingWebhookRouter } from './routes/billingRoutes';
 import { voiceQuestionRouter } from './routes/voiceQuestionRoutes';
+import { automationCallbackRouter } from './routes/automationCallbackRoutes';
 
 // Rate Limiters
 const globalLimiter = rateLimit({
@@ -55,6 +56,8 @@ export function createApp() {
   app.use(cors({ origin: corsOrigin }));
   app.disable('x-powered-by');
   if (process.env.TRUST_PROXY_HOPS) app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS));
+  // QStash signs exact bytes: this must precede express.json().
+  app.use('/internal/automation', express.raw({ type: 'application/json', limit: '16kb' }), automationCallbackRouter);
   app.use(billingWebhookRouter);
   app.use('/api/v1/webhook', express.raw({ type: ['application/json', 'application/*+json'], limit: '1mb' }));
   app.use(express.json());

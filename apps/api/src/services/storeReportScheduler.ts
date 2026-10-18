@@ -105,11 +105,11 @@ export async function runScheduledReport(tenantId: string, now = new Date()) {
   }
   await prisma.storeReportSchedule.updateMany({ where: { tenantId, updatedAt: config.updatedAt }, data: { nextRunAt: nextReportTime(config.nextRunAt, config.timezone, config.deliveryTime) } });
 }
-export async function tickStoreReports(tenantId?: string) {
+export async function tickStoreReports(tenantId?: string, options?: { limit: number; deadline: number }) {
   await prisma.storeDailyReport.updateMany({ where: { tenantId, status: 'generating', attempts: { gte: 3 }, leaseUntil: { lt: new Date() } }, data: { status: 'failed', leaseUntil: null, error: 'Report generation was interrupted repeatedly. Check store access before the next scheduled report.' } });
   await prisma.storeDailyReport.updateMany({ where: { tenantId, status: 'sending', leaseUntil: { lt: new Date() } }, data: { status: 'unknown', error: 'Sending was interrupted. Review provider activity before taking action.' } });
-  const due = await prisma.storeReportSchedule.findMany({ where: { tenantId, enabled: true, nextRunAt: { lte: new Date() } }, orderBy: { nextRunAt: 'asc' }, take: 25, select: { tenantId: true } });
-  for (const item of due) await runScheduledReport(item.tenantId).catch(() => logger.warn('Store report cycle failed', { tenantId: item.tenantId }));
+  const due = await prisma.storeReportSchedule.findMany({ where: { tenantId, enabled: true, nextRunAt: { lte: new Date() } }, orderBy: { nextRunAt: 'asc' }, take: options?.limit ?? 25, select: { tenantId: true } });
+  for (const item of due) { if (options && Date.now() >= options.deadline) break; await runScheduledReport(item.tenantId).catch(() => logger.warn('Store report cycle failed', { tenantId: item.tenantId })); }
 }
 let timer: NodeJS.Timeout | undefined; let running: Promise<void> | null = null;
 export function startStoreReports() { if (timer) return; timer = setInterval(() => { if (!running) running = tickStoreReports().catch(() => logger.warn('Store report scheduler unavailable')).finally(() => { running = null; }); }, 60000); timer.unref(); }

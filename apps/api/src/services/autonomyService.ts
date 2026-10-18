@@ -111,10 +111,10 @@ export const autonomyService = {
     return this.executeJobRun(tenantId, job, run.id, { ...payload, _attempt: run.attempt });
   },
 
-  async tick(tenantId?: string) {
-    const jobs = await prisma.autonomousJob.findMany({ where: { enabled: true, triggerType: 'schedule', nextRunAt: { lte: new Date() }, ...(tenantId ? { tenantId } : {}) }, orderBy: { nextRunAt: 'asc' } });
+  async tick(tenantId?: string, options?: { limit: number; deadline: number }) {
+    const jobs = await prisma.autonomousJob.findMany({ where: { enabled: true, triggerType: 'schedule', nextRunAt: { lte: new Date() }, ...(tenantId ? { tenantId } : {}) }, orderBy: { nextRunAt: 'asc' }, ...(options ? { take: options.limit } : {}) });
     const results = [];
-    for (const job of jobs) results.push(await this.runJob(job.tenantId, job.id));
+    for (const job of jobs) { if (options && Date.now() >= options.deadline) break; results.push(await this.runJob(job.tenantId, job.id)); }
     return results;
   },
 

@@ -8,10 +8,10 @@ Prepared for AI Workforce, 2026-10-18. This replaces the intended Render datasto
 | --- | --- | --- |
 | Next.js dashboard | Existing Vercel `workforce` project | Already live at https://workforce-blue.vercel.app |
 | Static entry page | Firebase Spark Hosting | Already live at https://gen-lang-client-0445651739.web.app |
-| PostgreSQL + pgvector | Neon Free | Configuration prepared; account/database credentials needed |
-| Redis TCP/TLS | Upstash Redis Free | Configuration prepared; account/database credentials needed |
-| Express request/response API | Separate Vercel Express project, root `apps/api` | Configuration prepared, not deployed |
-| BullMQ consumers and recurring schedulers | Separate persistent runtime | Still required for queued WhatsApp processing and scheduled automation |
+| PostgreSQL + pgvector | Neon Free | Provisioned; 15 migrations applied; live checks passed |
+| Redis TCP/TLS | Upstash Redis Free | Provisioned; TLS and API readiness checks passed |
+| Express request/response API | Separate Vercel Express project, root `apps/api` | Live at https://ai-workforce-api-phi.vercel.app |
+| BullMQ consumers and recurring schedulers | Signed QStash callbacks into Vercel | Bounded five-minute batches; see SERVERLESS_AUTOMATION.md |
 
 Neon and Upstash offer free plans with limits. Select Free explicitly; do not add a payment method or enable paid upgrades. This is not unlimited free capacity. Upstash's Free plan currently includes 500K commands/month and 256MB; BullMQ can issue commands even when idle, so a continuously running worker can exhaust the allowance. Do not use an expiring anonymous database as the live application's storage.
 
@@ -42,7 +42,7 @@ REDIS_URL=rediss://default:URL_ENCODED_PASSWORD@ENDPOINT.upstash.io:6379/0
 
 All connections go through `redisConnectionOptions`. The Upstash endpoint requires TLS with certificate verification and database zero. The worker connection uses `maxRetriesPerRequest: null`; producers have bounded retries and fail promptly on outages. Keep eviction disabled / `noeviction` for queue data. Check provider/BullMQ compatibility and connection/command limits before enabling continuous consumers.
 
-The HTTP-only process does not connect an unused consumer client. Queue producers remain available, but **queued work will not execute without a separately running consumer**. Do not enable customer WhatsApp inbound processing until that consumer is available. Scheduled reports, niche automation and autonomy scheduling likewise need a persistent worker. This preparation does not move them to a durable serverless queue/workflow.
+The HTTP-only process does not connect an unused continuous consumer. The no-card deployment uses signed QStash callbacks to start bounded consumers and scheduler batches every five minutes; see [Serverless automation](SERVERLESS_AUTOMATION.md) for cadence, security and quota limitations. A persistent host remains an option for lower-latency processing. External customer integrations still require their own configured credentials, consent and acceptance tests.
 
 ## Vercel Express API project
 
@@ -115,7 +115,7 @@ npm run build --workspace=@ai-employee/api
 
 Once real services are configured, `/livez` checks process liveness; `/health` must report `status: healthy`, `checks.database: true`, and `checks.redis: true`. Verify exact CORS origins, frontend login, tenant isolation, a controlled Gemini question and voice upload. A green frontend page is not proof that those backend flows work.
 
-No Neon or Upstash resource, API deployment, migration against Neon, or live AI acceptance has been claimed by this preparation. Actual account-owned credentials are still required and must be supplied privately.
+Neon, Upstash Redis and the Vercel API are now provisioned. All 15 migrations, pgvector, TLS Redis, frontend login, tenant isolation and a real Gemini request passed live verification on 2026-10-18. Existing local users/data were not copied to the new cloud database. The QStash callback release and its verification are recorded separately in `artifacts/`; do not infer its activation from this setup guide alone.
 
 ## Official references
 
