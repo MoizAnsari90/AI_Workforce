@@ -115,7 +115,7 @@ without `read_all_orders`. We have not requested broader history access.
 
 ### Before advertising calling or appointments as fully ready
 
-5. **Voice:** existing niche Vapi setup requires manual provider/assistant/number
+5. **Voice:** the Dograh integration requires a published agent and telephony
    provisioning. Managed number setup and real inbound/outbound call acceptance
    remain; vendor spend limits and supported markets need configuration.
    E-commerce callback automation and WhatsApp Calling are not implemented.

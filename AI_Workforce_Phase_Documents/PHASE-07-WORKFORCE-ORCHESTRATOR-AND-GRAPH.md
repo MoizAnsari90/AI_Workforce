@@ -43,7 +43,7 @@ Node examples:
 - Idempotency claim / `IDEMPOTENCY_GATE` (State transition: `NEW` → `CLAIMED` → `SUCCEEDED` or `FAILED`)
 - Verification / `VERIFICATION_GATE`
 - Approval / `HITL_APPROVAL_GATE` (State transition: `PENDING_APPROVAL` → Human Decision → Resume/Abort)
-- Voice Call Session / `VOICE_CALL_SESSION` (Retell AI / Vapi integration nodes)
+- Voice Call Session / `VOICE_CALL_SESSION` (Dograh integration nodes)
 - Reminder / `REMINDER_SCHEDULE` (WhatsApp/Voice reminder delivery, acknowledgement, retry, and no-response handling)
 - Human handoff / `HUMAN_HANDOFF` (low confidence, emergency, failed execution, or edge case)
 - Wait/event

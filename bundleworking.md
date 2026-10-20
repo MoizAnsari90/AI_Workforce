@@ -106,7 +106,7 @@ For Healthcare and Real Estate schedules, the platform should automatically send
 1. Create an appointment/viewing with a stable tenant-scoped appointment ID.
 2. Schedule a reminder job for exactly 24 hours before the event.
 3. Send a WhatsApp confirmation when the contact has opted in and a valid phone number is available.
-4. Send a Voice confirmation through the configured Vapi/Retell provider when voice is enabled or WhatsApp delivery fails.
+4. Send a voice confirmation through the configured Dograh agent when voice is enabled or WhatsApp delivery fails.
 5. Record delivery status, acknowledgement, opt-out, and any reschedule/cancel response.
 6. If no acknowledgement is received, apply the tenant's configured retry policy and optionally escalate to staff.
 

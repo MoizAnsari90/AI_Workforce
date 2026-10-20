@@ -17,7 +17,6 @@ import { queueService } from '../services/queueService';
 import { logger } from '../utils/logger';
 import { IntegrationService } from '../services/integrationService';
 import { acceptNicheInbound, recordNicheDelivery } from '../services/nicheAutomationWorker';
-import { receiveNicheVoice } from '../controllers/nicheVoiceController';
 import { consumeWhatsAppSetupTest } from '../services/whatsappSetupTestService';
 import { recordStoreReportDelivery } from '../services/storeReportScheduler';
 
@@ -77,8 +76,6 @@ webhookRouter.post('/webhook/whatsapp', async (req, res) => {
 // ---------------------------------------------------------------------------
 webhookRouter.get('/webhook/:tenantId/whatsapp', verifyWebhook);
 webhookRouter.post('/webhook/:tenantId/whatsapp', receiveWebhook);
-webhookRouter.post('/webhook/:tenantId/niche-voice', receiveNicheVoice);
-webhookRouter.post('/webhook/:tenantId/voice', (_req, res) => res.status(410).json({ error: 'Use the authenticated niche-voice endpoint. Unauthenticated voice callbacks are no longer accepted.' }));
 
 // ---------------------------------------------------------------------------
 // Conversation Management (authenticated, tenant-isolated)

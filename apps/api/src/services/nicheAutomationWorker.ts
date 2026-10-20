@@ -7,7 +7,8 @@ import { type ParsedWhatsAppMessage } from './whatsappService';
 import { customerHash, enqueueNicheDispatch, getAutomationConfig, normalizePhone, openAutomation, sealAutomation } from './nicheAutomationStore';
 import { processNicheTurn } from './nicheConversationService';
 import { decryptAppointmentContact } from './nicheWorkflowService';
-import { DispatchError, sendNicheVoiceCall, sendNicheWhatsApp, verifyReminderTemplate, whatsappCredential } from './nicheProviders';
+import { DispatchError, sendNicheWhatsApp, verifyReminderTemplate, whatsappCredential } from './nicheProviders';
+import { sendDograhCall } from './dograh';
 
 export async function acceptNicheInbound(tenantId: string, message: ParsedWhatsAppMessage) {
   const config = await getAutomationConfig(tenantId); if (!config) return false;
@@ -82,7 +83,11 @@ export async function runNicheDispatch(id: string) {
       const payload = z.object({ phone: z.string(), consentAt: z.string() }).parse(openAutomation(candidate.encryptedPayload, candidate.tenantId));
       const stopped = await prisma.nicheSession.findFirst({ where: { tenantId: candidate.tenantId, customerHash: customerHash(payload.phone), paused: true } });
       if (!config.voiceEnabled || stopped || !await hasSubscription(candidate.tenantId) || !await hasActiveChannelAgent(candidate.tenantId, config.kind) || Date.parse(payload.consentAt) < Date.now() - 10 * 60_000) finalStatus = 'skipped';
-      else { providerId = await sendNicheVoiceCall(candidate.tenantId, payload.phone, candidate.id); finalStatus = 'accepted'; }
+        else {
+          providerId = await sendDograhCall(candidate.tenantId, payload.phone, candidate.id);
+          finalStatus = 'accepted';
+          await prisma.voiceSession.upsert({ where: { callId: providerId }, create: { tenantId: candidate.tenantId, provider: 'DOGRAH', callId: providerId, status: 'initiated', metadata: { dispatchId: candidate.id } }, update: {} });
+        }
     } else if (candidate.type === 'reminder') {
       const { appointmentId } = z.object({ appointmentId: z.string().uuid() }).parse(openAutomation(candidate.encryptedPayload, candidate.tenantId));
       // Serialize against cancellation: check and send before releasing the booking lock.

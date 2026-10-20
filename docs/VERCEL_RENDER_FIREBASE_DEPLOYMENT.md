@@ -74,7 +74,7 @@ Set every `sync: false` variable prompted by the Blueprint:
 
 Optional `DIRECT_DATABASE_URL` must be omitted when unused, not filled with a placeholder. API port is supplied by Render; the existing server reads `process.env.PORT` through its environment schema and binds `0.0.0.0`. `/health` checks PostgreSQL and Redis; `/livez` checks process liveness.
 
-The Blueprint leaves application Stripe billing disabled. That setting is unrelated to GCP billing. Optional Shopify/Calendar/Vapi/WhatsApp configuration must be added only for enabled integrations. Register exact production OAuth redirect and webhook URLs; do not retain localhost callbacks.
+The Blueprint leaves application Stripe billing disabled. That setting is unrelated to GCP billing. Optional Shopify/Calendar/Dograh/WhatsApp configuration must be added only for enabled integrations. Register exact production OAuth redirect and webhook URLs; do not retain localhost callbacks.
 
 ## 4. Vercel frontend
 

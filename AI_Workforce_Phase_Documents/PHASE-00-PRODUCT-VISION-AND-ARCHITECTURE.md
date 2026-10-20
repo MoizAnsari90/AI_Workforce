@@ -7,7 +7,7 @@ This phase is architecture/specification only. Do not implement major business f
 
 ## Product Vision
 Build a B2B multi-tenant SaaS where a business can deploy specialized AI employees for:
-- Customer Support (including direct Shopify actions and Real-Time Voice Calls via Retell AI / Vapi)
+- Customer Support (including direct Shopify actions and Real-Time Voice Calls via Dograh AI / Dograh)
 - Sales (including CRM lead creation and Real-Time Voice Qualification Calls)
 - Marketing (with strict Human-in-the-Loop publishing gates)
 - Operations / Inventory (with automated supplier POs and Shopify stock syncing)
@@ -35,7 +35,7 @@ The existing WhatsApp + RAG + human takeover implementation becomes the foundati
 7. Verification must be separate from generation where practical.
 8. Agents must use shared business context but must not have unrestricted access.
 9. Prefer reusable platform primitives over department-specific duplicated code (including pre-configured Niche Templates).
-10. Real-time voice and multichannel execution (WhatsApp, Web, Retell AI / Vapi) must be natively supported.
+10. Real-time voice and multichannel execution (WhatsApp, Web, Dograh AI / Dograh) must be natively supported.
 11. Do not change the approved technology stack without explicit approval.
 12. Preserve backward compatibility when extending existing functionality.
 
@@ -48,7 +48,7 @@ Healthcare agents are administrative receptionists, not clinicians. They may sch
 Business Dashboard / Niche Templates
 → Workforce Orchestrator
 → Specialized Agents (Support, Sales, Marketing, Ops, Finance, Healthcare Receptionist)
-→ Channels (WhatsApp, Web, Voice/Retell AI / Vapi)
+→ Channels (WhatsApp, Web, Voice/Dograh AI / Dograh)
 → Tool / Action Integration Layer (Shopify, CRM, QuickBooks, clinic scheduling, etc.)
 → Verification / Policy / Approval Layer
 → Human-in-the-Loop (HITL) Approval Engine
@@ -64,7 +64,7 @@ Business Dashboard / Niche Templates
 - Workflows & Workflow Templates (Niche Bundles)
 - Action-Oriented Tool Executions
 - Human Approval Requests & Queues
-- Voice Sessions (Retell AI / Vapi)
+- Voice Sessions (Dograh AI / Dograh)
 - External Integration Credentials & Secrets
 
 ## Vertical Niche Solutions

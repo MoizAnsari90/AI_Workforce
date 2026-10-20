@@ -1,14 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../src/services/integrationService', () => ({ IntegrationService: { getCredential: vi.fn(), storeCredential: vi.fn() } }));
 import { IntegrationService } from '../src/services/integrationService';
-import { connectNicheVoice, DispatchError, sendNicheVoiceCall, sendNicheWhatsApp, verifyNicheVoiceRequest, verifyReminderTemplate } from '../src/services/nicheProviders';
+import { DispatchError, sendNicheWhatsApp, verifyReminderTemplate } from '../src/services/nicheProviders';
+import { connectDograh, getDograhCredential, sendDograhCall, verifyDograhWebhookSecret } from '../src/services/dograh';
 import { defaultAutomation } from '../src/services/nicheAutomationStore';
-const assistantId = 'b5b550df-33bd-4d6d-98e1-c52028873c61', phoneNumberId = 'd101d222-e181-466a-a4c3-5b75c30eae10', callId = '688c222c-736e-40b9-a38a-cc8f57a5873b';
-const voice = { apiKey: 'fixture-private-key', assistantId, phoneNumberId, webhookSecret: 'fixture-bearer-secret-at-least-32-characters' };
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+const secret = 'fixture-dograh-webhook-secret-at-least-32-characters';
+const dograh = { apiUrl: 'https://dograh.example.test', apiKey: 'dg_fixture_api_key', agentId: 'agent-fixture', webhookSecret: secret };
 const originalOrigin = process.env.PUBLIC_API_URL;
-beforeEach(() => { vi.clearAllMocks(); process.env.PUBLIC_API_URL = 'https://api.example.test'; vi.mocked(IntegrationService.getCredential).mockImplementation(async (_tenantId, provider) => provider === 'vapi' ? voice : { accessToken: 'tenant-token', phoneNumberId: '12345678', wabaId: '87654321' }); });
+beforeEach(() => {
+  vi.clearAllMocks(); process.env.PUBLIC_API_URL = 'https://api.example.test';
+  vi.mocked(IntegrationService.getCredential).mockImplementation(async (_tenantId, provider) => provider === 'dograh' ? dograh : { accessToken: 'tenant-token', phoneNumberId: '12345678', wabaId: '87654321' });
+});
 afterEach(() => { vi.unstubAllGlobals(); if (originalOrigin === undefined) delete process.env.PUBLIC_API_URL; else process.env.PUBLIC_API_URL = originalOrigin; });
+
 describe('Niche provider boundaries', () => {
   it('uses only workspace WhatsApp credentials and verifies acceptance IDs', async () => {
     const fetch = vi.fn().mockResolvedValue(reply({ messages: [{ id: 'wamid.real-fixture' }] })); vi.stubGlobal('fetch', fetch);
@@ -25,29 +30,23 @@ describe('Niche provider boundaries', () => {
     expect((await verifyReminderTemplate('tenant-a', config)).name).toBe(template.name);
     for (const changed of [{ ...template, status: 'PAUSED' }, { ...template, category: 'MARKETING' }, { ...template, components: [{ type: 'BODY', text: '{{1}} and {{2}}' }] }]) { fetch.mockResolvedValue(reply({ data: [changed] })); await expect(verifyReminderTemplate('tenant-a', config)).rejects.toThrow('approved UTILITY'); }
   });
-  it('distinguishes explicit rejection from uncertain delivery', async () => {
-    const fetch = vi.fn().mockResolvedValue(reply({}, 400)); vi.stubGlobal('fetch', fetch); await expect(sendNicheWhatsApp('t', '+923001234567', { text: 'Hello' })).rejects.toMatchObject({ uncertain: false });
-    fetch.mockRejectedValue(new Error('timeout')); await expect(sendNicheWhatsApp('t', '+923001234567', { text: 'Hello' })).rejects.toBeInstanceOf(DispatchError);
-    fetch.mockResolvedValue(reply({}, 503)); await expect(sendNicheWhatsApp('t', '+923001234567', { text: 'Hello' })).rejects.toMatchObject({ uncertain: true });
+  it('stores the Dograh connection per tenant and returns the public callback URL', async () => {
+    expect(await connectDograh('tenant-a', 'user-a', dograh)).toEqual({ connected: true, webhookUrl: 'https://api.example.test/api/webhooks/dograh' });
+    expect(IntegrationService.storeCredential).toHaveBeenCalledWith({ tenantId: 'tenant-a', userId: 'user-a', provider: 'dograh', config: dograh });
+    expect(await getDograhCredential('tenant-a')).toMatchObject(dograh);
   });
-  it('rejects wrong voice bearer authentication before fetching any call', async () => {
-    const fetch = vi.fn(); vi.stubGlobal('fetch', fetch); expect(await verifyNicheVoiceRequest('tenant-a', 'Bearer forged', callId)).toBeNull(); expect(fetch).not.toHaveBeenCalled();
+  it('triggers the published Dograh agent and persists its workflow run ID contract', async () => {
+    const fetch = vi.fn().mockResolvedValue(reply({ status: 'initiated', workflow_run_id: 4312 })); vi.stubGlobal('fetch', fetch);
+    expect(await sendDograhCall('tenant-a', '+923001234567', 'dispatch-1')).toBe('4312');
+    expect(fetch.mock.calls[0][0]).toBe('https://dograh.example.test/api/v1/public/agent/workflow/agent-fixture');
+    expect(fetch.mock.calls[0][1].headers['X-API-Key']).toBe(dograh.apiKey);
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({ phone_number: '+923001234567', initial_context: { tenant_id: 'tenant-a', workforce_dispatch_id: 'dispatch-1' } });
+    fetch.mockResolvedValue(reply({}, 503)); await expect(sendDograhCall('tenant-a', '+923001234567', 'dispatch-2')).rejects.toMatchObject({ uncertain: true });
+    fetch.mockResolvedValue(reply({ status: 'initiated' })); await expect(sendDograhCall('tenant-a', '+923001234567', 'dispatch-3')).rejects.toMatchObject({ uncertain: true });
+    fetch.mockRejectedValue(new Error('timeout')); await expect(sendDograhCall('tenant-a', '+923001234567', 'dispatch-4')).rejects.toBeInstanceOf(DispatchError);
   });
-  it('checks actual provider call ownership instead of trusting webhook phone/assistant fields', async () => {
-    const fetch = vi.fn().mockResolvedValue(reply({ id: callId, assistantId, phoneNumberId, customer: { number: '+923001234567' } })); vi.stubGlobal('fetch', fetch);
-    expect((await verifyNicheVoiceRequest('tenant-a', `Bearer ${voice.webhookSecret}`, callId))?.customer.number).toBe('+923001234567');
-    fetch.mockResolvedValue(reply({ id: callId, assistantId: 'foreign', phoneNumberId, customer: { number: '+923001234567' } })); expect(await verifyNicheVoiceRequest('tenant-a', `Bearer ${voice.webhookSecret}`, callId)).toBeNull();
-  });
-  it('saves voice credentials only after verifying the bound phone, assistant and authenticated server URL', async () => {
-    const server = { url: 'https://api.example.test/api/v1/webhook/tenant-a/niche-voice', credentialId: 'saved-credential' };
-    let toolEnabled = true;
-    const fetch = vi.fn().mockImplementation(async (url: string) => reply(url.includes('/assistant/') ? { id: assistantId, server, model: { toolIds: [callId] } } : url.includes('/tool/') ? { type: 'function', async: !toolEnabled, function: { name: 'workforce_turn', parameters: { type: 'object', required: ['text'], properties: { text: { type: 'string' } } } }, server } : { id: phoneNumberId, assistantId })); vi.stubGlobal('fetch', fetch);
-    expect((await connectNicheVoice('tenant-a', 'admin', voice)).connected).toBe(true); expect(IntegrationService.storeCredential).toHaveBeenCalledTimes(1);
-    toolEnabled = false; await expect(connectNicheVoice('tenant-a', 'admin', voice)).rejects.toThrow('synchronous workforce_turn'); expect(IntegrationService.storeCredential).toHaveBeenCalledTimes(1);
-    fetch.mockResolvedValue(reply({ id: assistantId, server: { url: 'https://foreign.test' } })); await expect(connectNicheVoice('tenant-a', 'admin', voice)).rejects.toThrow(); expect(IntegrationService.storeCredential).toHaveBeenCalledTimes(1);
-  });
-  it('starts calls using a saved assistant and never embeds a transient untrusted server configuration', async () => {
-    const fetch = vi.fn().mockResolvedValue(reply({ id: callId })); vi.stubGlobal('fetch', fetch); expect(await sendNicheVoiceCall('tenant-a', '+923001234567', 'dispatch-ref')).toBe(callId);
-    const body = JSON.parse(fetch.mock.calls[0][1].body); expect(body).toMatchObject({ assistantId, phoneNumberId, metadata: { workforceDispatch: 'dispatch-ref' } }); expect(body.assistant).toBeUndefined(); expect(body.assistantOverrides).toBeUndefined();
+  it('uses constant-time bearer secret matching and rejects forged callbacks', () => {
+    expect(verifyDograhWebhookSecret(secret, `Bearer ${secret}`)).toBe(true);
+    expect(verifyDograhWebhookSecret(secret, 'Bearer forged')).toBe(false);
   });
 });

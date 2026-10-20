@@ -1,4 +1,8 @@
-# WhatsApp and voice readiness audit
+# WhatsApp and Dograh voice readiness audit
+
+This document records a 6 October 2026 snapshot taken before the Dograh cutover.
+Its provider-specific setup findings are historical. The current Dograh design
+and setup steps are maintained in [Dograh integration](DOGRAH_INTEGRATION.md).
 
 This is the pre-implementation audit snapshot. See
 [connection implementation progress](WHATSAPP_CONNECTION_PROGRESS.md) for fixes
@@ -14,7 +18,7 @@ were initiated. No provider credentials or customer content were included in thi
 Not ready for an unattended public SaaS rollout. WhatsApp and clinic/real-estate
 voice have substantial backend implementations, but connection completion,
 readiness evidence and customer onboarding need further work. E-commerce voice
-is not implemented by the clinic/real-estate reception engine. Existing Vapi calls
+is not implemented by the clinic/real-estate reception engine. Existing Dograh calls
 are telephone calls; a WhatsApp Calling API integration was not found.
 
 Local evidence:
@@ -23,8 +27,8 @@ Local evidence:
 - PUBLIC_API_URL is absent. Voice connection validation requires a public HTTPS origin.
 - META_APP_SECRET, META_VERIFY_TOKEN and INTEGRATION_ENCRYPTION_KEY are present;
   presence does not validate their values or the running process configuration.
-- The inspected workspace has no active WhatsApp/Vapi integration records, no
-  reception automation configuration and zero Vapi voice-session records.
+- The inspected workspace has no active WhatsApp/Dograh integration records, no
+  reception automation configuration and zero Dograh voice-session records.
 - The Meta App Review, account verification, account billing, allowed domains and
   provider number capabilities have not been inspected in provider consoles.
 - Focused verification: 3 test files, 25 tests passed:
@@ -40,7 +44,7 @@ Local evidence:
 - Opt-out, staff handoff, opt-in reminders and explicit CALL callback requests.
 - Approved utility-template validation and distinction between accepted and
   delivered messages in niche dispatch records.
-- Vapi assistant, phone, tool and webhook configuration validation.
+- Dograh assistant, phone, tool and webhook configuration validation.
 - Bearer authentication plus provider-side call ownership verification.
 - Handling uncertain sends without automatically sending a duplicate.
 
@@ -79,10 +83,10 @@ Local evidence:
 ### Voice and customer experience
 
 1. `apps/web/components/workforce/automation-panel.tsx` requires a private API key,
-   assistant ID, phone-number ID and webhook bearer token, plus manual Vapi tool setup.
+   assistant ID, phone-number ID and webhook bearer token, plus manual Dograh tool setup.
    This is an administrator setup flow, not an easy merchant onboarding experience.
 2. The active reception flow only supports healthcare and real_estate. E-commerce
-   template metadata mentions RETELL, but no corresponding live Retell caller was
+   template metadata mentions DOGRAH, but no corresponding live Dograh caller was
    found. Choose one supported provider and implement each advertised use case.
 3. `nicheVoiceController.ts` maps every ended call to completed without evaluating
    its end reason. A completed call record is not evidence of a successful conversation
@@ -122,12 +126,12 @@ default merchant journey. Show setup progress when returning from provider conse
 ### AI phone calls
 
 Recommended default: platform-managed voice, subject to provider commercial terms
-and telephony availability. Keep bring-your-own Vapi as an advanced option.
+and telephony availability. Keep bring-your-own Dograh as an advanced option.
 
 1. Select the use case, language and voice preview.
 2. Choose an available business number, or an assisted existing-number/forwarding
    setup that the selected carrier supports. A WhatsApp number does not automatically
-   become a Vapi telephone number.
+   become a Dograh telephone number.
 3. Provision the tenant's assistant, tools, authenticated server configuration and
    phone assignment on the backend. Isolate resources and usage by workspace.
 4. Show fees, supported calling countries and a spending cap before activation.
@@ -138,7 +142,7 @@ and telephony availability. Keep bring-your-own Vapi as an advanced option.
 
 Pakistan, UAE and US business profiles do not establish phone-number availability,
 permission to dial a destination, or voice language quality. Verify each intended
-country with the chosen carrier and test supported languages. Vapi's current docs
+country with the chosen carrier and test supported languages. Dograh's current docs
 describe free numbers as US/inbound-only; outbound and international use require
 an appropriate imported number/provider. Calls themselves consume paid usage.
 
@@ -164,10 +168,9 @@ accepted a send. Persist the successful test evidence and show the last verified
 - [Meta Cloud API registration documentation](https://www.postman.com/meta/whatsapp-business-platform/documentation/wlk6lh4/whatsapp-cloud-api?entity=request-13382743-06605a2c-2b74-4d0a-a035-2c227eae61d1): standard phone registration and PIN.
 - [WhatsApp messaging policy](https://business.whatsapp.com/policy): opt-in, opt-out, 24-hour replies, approved templates and escalation.
 - [WhatsApp's Business App/Platform same-number explanation](https://whatsappbusiness.com/resources/resource-library/organize-whatsapp-inbox-meta-business-suite/): retaining the Business App while adding Platform features; implementation eligibility still needs verification.
-- [Vapi outbound calls](https://docs.vapi.ai/calls/outbound-calling): assistant, imported number and customer number requirements.
-- [Vapi free phone numbers](https://docs.vapi.ai/free-telephony): regional and outbound restrictions; calls are billed.
-- [Vapi server authentication](https://docs.vapi.ai/server-url/server-authentication): securing provider-to-application requests.
-- [Vapi assistant quickstart](https://docs.vapi.ai/assistants/quickstart): assistant and number provisioning through dashboard or API.
+- [Dograh API Trigger](https://docs.dograh.com/voice-agent/api-trigger): trigger an agent from the application backend.
+- [Dograh Webhook](https://docs.dograh.com/voice-agent/webhook): send call results to an external callback.
+- [Dograh API keys](https://docs.dograh.com/configurations/api-keys): create and protect voice-agent API keys.
 
 Several Meta developer pages returned HTTP 429 during research. Meta's own Postman
 collections and WhatsApp business site were used where accessible; provider-console

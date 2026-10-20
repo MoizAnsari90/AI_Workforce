@@ -35,7 +35,7 @@ Express API (/api/v1/*)
   |-- Database-backed niche dispatch worker for clinic/real-estate automation
   |-- Socket.IO events for selected live dashboard updates
   v
-Shopify / WooCommerce / Meta WhatsApp / Google Calendar / Vapi / Gemini
+Shopify / WooCommerce / Meta WhatsApp / Google Calendar / Dograh / Gemini
 ```
 
 The API starts the autonomy scheduler and niche automation timer when the API
@@ -179,10 +179,10 @@ is rules-based; it is not an AI prediction or a connected external CRM pipeline.
 
 ### Phone calling
 
-Vapi is the implemented provider for niche voice callbacks/assistant tool turns.
+Dograh is the integrated provider for niche voice callbacks and authenticated assistant tool turns.
 The admin setup currently requires provider-side configuration and credentials;
 the user must opt in/request a callback. Voice is not automatically available
-just because the template includes a voice node. Retell appears in a seeded
+just because the template includes a voice node. Dograh appears in a seeded
 E-commerce template description, but this repository does not implement the
 corresponding niche call workflow. Telephone calling is distinct from WhatsApp
 Calling, which is not implemented here.
@@ -261,7 +261,7 @@ complete, polished customer-facing workflow for it in the current dashboard.
 2. New bundles start paused. Verify activation, adding/replacing bundles and
    pause behavior across the dashboard and background channel workers.
 3. Finish and verify provider setup in real Meta, Shopify, WooCommerce, Google
-   and Vapi accounts. Local automated tests do not establish live delivery.
+   and Dograh accounts. Local automated tests do not establish live delivery.
 4. The guided WhatsApp test distinguishes inbound receipt, provider acceptance
    and delivery receipt. Execute it against an actual Meta number; real delivery
    has not yet been established by the mocked tests.

@@ -3,7 +3,7 @@ import { logger } from '../utils/logger';
 import { recordAuditLog } from './auditService';
 
 export interface VoiceWebhookPayload {
-  provider: 'VAPI' | 'RETELL';
+  provider: 'DOGRAH';
   callId: string;
   callerPhone?: string;
   status: string; // 'initiated' | 'active' | 'completed' | 'failed'

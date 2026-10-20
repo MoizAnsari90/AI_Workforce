@@ -4,6 +4,16 @@ Updated: 6 October 2026. This records the first implementation milestone after
 [the readiness audit](WHATSAPP_VOICE_READINESS_AUDIT.md). It is not a live-delivery
 certification or a public-launch sign-off.
 
+## Dograh voice cutover — 21 October 2026
+
+The earlier voice setup notes below are a historical snapshot. AI Workforce now
+uses the Dograh connection screen and authenticated `/api/webhooks/dograh`
+endpoint. See [Dograh integration](DOGRAH_INTEGRATION.md) for current setup.
+Migration `20261021120000_replace_vapi_with_dograh` removes stored credentials
+for the retired provider and labels old call records as legacy. Automated tests
+do not constitute a live Dograh call; a controlled external call remains an
+operational acceptance step.
+
 ## Completed in this milestone
 
 - Embedded Signup handles Meta JSON-string and object events, validates exact
@@ -36,11 +46,11 @@ certification or a public-launch sign-off.
 - Clinic/real-estate automatic WhatsApp replies cannot be switched on until a
   successful delivery receipt was recorded within the last 30 days.
 - Voice setup can place an explicit test call to a phone the admin controls.
-  The UI discloses potential Vapi/carrier charges; the API requires a consent
-  confirmation, masks the destination in audit data, records the Vapi call,
+  The UI discloses potential Dograh/carrier charges; the API requires a consent
+  confirmation, masks the destination in audit data, records the Dograh call,
   enforces an idempotency key and caps setup calls at three per hour. An
   uncertain provider response blocks retry with the same request and tells the
-  admin to check Vapi call activity.
+  admin to check Dograh call activity.
 
 No database migration was added by this milestone. Restart the API and web dev
 servers to use the changes. Do not replace existing encryption keys.
@@ -105,11 +115,10 @@ The final API TypeScript build and web TypeScript check also passed.
    Meta app and a test number; validate the real account's registration and app
    coexistence cases. The “already registered” choice is owner-confirmed until
    the message exchange is delivered.
-2. Replace the current Vapi bring-your-own setup with a managed calling option
-   after the platform Vapi account, per-market telephone-number supply, billing
-   model, supported destinations and service limits are chosen. Existing Vapi
-   assistant/tool provisioning is still manual. Test calling has the explicit
-   consent and spend-warning controls, but no vendor-side spend cap is configured.
+2. Configure and test the workspace's published Dograh agent, API Trigger,
+   telephony connection and authenticated Webhook node. Test calling has explicit
+   consent and cost disclosures; configure Dograh/model/telephony spending limits
+   in their respective provider accounts where available.
 3. Connect bundle selection, channel readiness, automation activation and pause
    controls into one consistent workspace flow, including e-commerce support.
 
@@ -130,11 +139,11 @@ The final API TypeScript build and web TypeScript check also passed.
    stored and routed to the human inbox until delivery has been verified; those
    held conversations may need an admin to resume AI individually after the
    setup test.
-5. For a voice test, first connect a Vapi assistant/phone as the current
+5. For a voice test, first connect a Dograh assistant/phone as the current
    bring-your-own setup requires. In Automation & inbox, enter a phone you
    control, confirm permission and potential charges, then request a test call.
-   Check Vapi activity and Voice logs for the call outcome. Do not retry after
-   an uncertain acceptance until you have checked Vapi.
+   Check Dograh activity and Voice logs for the call outcome. Do not retry after
+   an uncertain acceptance until you have checked Dograh.
 
 ## Platform prerequisites and live verification
 
@@ -145,7 +154,7 @@ Customers should authorize through Meta rather than paste these platform secrets
 Meta app permissions/review, account and number eligibility, billing and webhook
 subscription must be checked in the actual provider account.
 
-No real WhatsApp message, Vapi call, Meta popup or production provider connection
+No real WhatsApp message, Dograh call, Meta popup or production provider connection
 has been tested in this milestone. Automated provider responses are mocked.
 The current status intentionally remains incomplete until a real delivery
 receipt is persisted. Telephone calling and WhatsApp Calling are separate

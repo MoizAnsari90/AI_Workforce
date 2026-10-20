@@ -5,14 +5,14 @@ import { prisma } from '../src/lib/prisma';
 import { TemplateService } from '../src/services/templateService';
 
 describe('Voice Webhooks and Template Deployment Tests', () => {
-  it('rejects the old unauthenticated voice webhook without persisting a forged call', async () => {
+  it('does not expose the removed unauthenticated legacy voice webhook', async () => {
     const tenant = await prisma.tenant.create({
       data: { name: `Test Tenant Voice ${Date.now()}` },
     });
 
     const callId = `call_${Date.now()}`;
     const payload = {
-      provider: 'VAPI',
+      provider: 'DOGRAH',
       callId,
       callerPhone: '+15550199',
       status: 'completed',
@@ -27,7 +27,7 @@ describe('Voice Webhooks and Template Deployment Tests', () => {
       .post(`/api/v1/webhook/${tenant.id}/voice`)
       .send(payload);
 
-    expect(res.status).toBe(410);
+    expect(res.status).toBe(404);
 
     // Verify session in DB
     const session = await prisma.voiceSession.findUnique({

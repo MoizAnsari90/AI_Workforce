@@ -2,5 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "express",
   "installCommand": "cd ../.. && npm ci --include=dev",
-  "buildCommand": "cd ../.. && npm run build --workspace=@ai-employee/shared && npm run prisma:generate --workspace=@ai-employee/api && npm run build --workspace=@ai-employee/api"
+  "buildCommand": "cd ../.. && npm run build --workspace=@ai-employee/shared && npm run prisma:generate --workspace=@ai-employee/api && npm run build --workspace=@ai-employee/api && if [ \"$VERCEL_ENV\" = \"production\" ]; then node scripts/run-migrations.cjs; fi"
 }

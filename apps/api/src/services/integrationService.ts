@@ -45,7 +45,7 @@ function decrypt(text: string): { plaintext: string; legacy: boolean } {
 
 export interface StoreCredentialParams {
   tenantId: string;
-  provider: string; // 'shopify', 'quickbooks', 'crm', 'vapi', 'retell'
+  provider: string; // e.g. 'shopify', 'quickbooks', 'crm', 'dograh'
   config: Record<string, unknown>;
   externalAccountId?: string;
   userId?: string;

@@ -20,7 +20,7 @@ Phase 02.
 - Sales policies
 - Human approval for sensitive actions
 - Direct CRM API Creation (HubSpot, Salesforce API integration)
-- Automated Voice Qualification Calls via Vapi / Retell AI for inbound leads
+- Automated voice qualification calls via Dograh AI for inbound leads
 - Vertical Niche Template: "Real Estate Lead Qualification & Appointment Booking" bundle (pre-configured workflows for property inquiry response, qualification, voice call scheduling, and CRM logging)
 - Voice and WhatsApp pre-appointment confirmation workflows, including 24-hour reminders and acknowledgement tracking
 - Low-confidence and failed-execution fallback routing to live human agent inboxes

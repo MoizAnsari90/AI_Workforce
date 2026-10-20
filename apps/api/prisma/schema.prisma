@@ -1611,7 +1611,7 @@ model AgentTemplate {
 model VoiceSession {
   id          String   @id @default(uuid())
   tenantId    String   @map("tenant_id")
-  provider    String   // 'VAPI' or 'RETELL'
+  provider    String   // 'DOGRAH' for new sessions; historical provider records may remain
   callId      String   @unique @map("call_id")
   status      String   @default("initiated") // initiated, active, completed, failed
   transcript  Json?    // call transcript or messages
@@ -1629,7 +1629,7 @@ model VoiceSession {
 model ExternalIntegrationCredential {
   id              String   @id @default(uuid())
   tenantId        String   @map("tenant_id")
-  provider        String   // 'shopify', 'quickbooks', 'crm', 'vapi', 'retell'
+  provider        String   // 'shopify', 'quickbooks', 'crm', 'dograh'
   externalAccountId String? @map("external_account_id")
   encryptedConfig Json     @map("encrypted_config") // encrypted API keys / tokens
   isActive        Boolean  @default(true) @map("is_active")

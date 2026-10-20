@@ -29,6 +29,7 @@ import { nicheAutomationRouter } from './routes/nicheAutomationRoutes';
 import { billingRouter, billingWebhookRouter } from './routes/billingRoutes';
 import { voiceQuestionRouter } from './routes/voiceQuestionRoutes';
 import { automationCallbackRouter } from './routes/automationCallbackRoutes';
+import { receiveDograhWebhook } from './controllers/dograhWebhookController';
 
 // Rate Limiters
 const globalLimiter = rateLimit({
@@ -60,6 +61,7 @@ export function createApp() {
   app.use('/internal/automation', express.raw({ type: 'application/json', limit: '16kb' }), automationCallbackRouter);
   app.use(billingWebhookRouter);
   app.use('/api/v1/webhook', express.raw({ type: ['application/json', 'application/*+json'], limit: '1mb' }));
+  app.post('/api/webhooks/dograh', express.json({ limit: '1mb' }), receiveDograhWebhook);
   app.use(express.json());
 
   // Process liveness is independent of database/Redis outages. /health reports readiness.

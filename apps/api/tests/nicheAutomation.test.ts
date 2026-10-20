@@ -5,15 +5,17 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 const actor = vi.hoisted(() => ({ tenantId: '', role: 'admin' }));
 vi.mock('../src/middleware/authMiddleware', () => ({ authenticate: (req: Request, _res: Response, next: NextFunction) => { if (req.headers.authorization !== 'Bearer fixture') return next(Object.assign(new Error('Unauthorized'), { statusCode: 401 })); req.user = { tenantId: actor.tenantId, userId: 'admin-fixture', role: actor.role as 'admin', permissions: [] }; req.tenantId = actor.tenantId; next(); } }));
 vi.mock('../src/services/googleCalendarService', () => ({ bookingCalendarContext: vi.fn(async () => ({ connectionId: 'fixture' })), resourceCalendarBusy: vi.fn(async () => ({ connectionId: 'fixture', busy: [] })), syncAppointmentEvent: vi.fn(async (_booking, cancel) => cancel ? 'cancelled' : 'confirmed') }));
-vi.mock('../src/services/nicheProviders', async importOriginal => { const original = await importOriginal<typeof import('../src/services/nicheProviders')>(); return { ...original, whatsappCredential: vi.fn(), sendNicheWhatsApp: vi.fn(), sendNicheVoiceCall: vi.fn(), verifyReminderTemplate: vi.fn(), verifyNicheVoiceRequest: vi.fn(), getVoiceCredential: vi.fn() }; });
+vi.mock('../src/services/nicheProviders', async importOriginal => { const original = await importOriginal<typeof import('../src/services/nicheProviders')>(); return { ...original, whatsappCredential: vi.fn(), sendNicheWhatsApp: vi.fn(), verifyReminderTemplate: vi.fn() }; });
+vi.mock('../src/services/dograh', () => ({ getDograhCredential: vi.fn(async () => ({ apiUrl: 'https://dograh.example.test', apiKey: 'fixture-api-key', agentId: 'fixture-agent', webhookSecret: 'fixture-secret-that-is-long-enough-for-tests' })), connectDograh: vi.fn(), sendDograhCall: vi.fn(async () => 'dograh-run-fixture'), verifyDograhWebhookSecret: vi.fn(() => true), dograhWebhookUrl: vi.fn(() => 'https://api.example.test/api/webhooks/dograh') }));
 import { prisma } from '../src/lib/prisma';
 import { nicheAutomationRouter } from '../src/routes/nicheAutomationRoutes';
-import { receiveNicheVoice } from '../src/controllers/nicheVoiceController';
+import { receiveDograhWebhook } from '../src/controllers/dograhWebhookController';
 import { processNicheTurn } from '../src/services/nicheConversationService';
 import { customerHash, defaultAutomation, enqueueNicheDispatch, openAutomation, sealAutomation } from '../src/services/nicheAutomationStore';
 import { acceptNicheInbound, recordNicheDelivery, runNicheDispatch, scheduleNicheReminders } from '../src/services/nicheAutomationWorker';
-import { DispatchError, getVoiceCredential, sendNicheVoiceCall, sendNicheWhatsApp, verifyNicheVoiceRequest, verifyReminderTemplate, whatsappCredential } from '../src/services/nicheProviders';
-const app = express(); app.use(express.json()); app.post('/webhook/:tenantId/niche-voice', receiveNicheVoice); app.use(nicheAutomationRouter);
+import { DispatchError, sendNicheWhatsApp, verifyReminderTemplate, whatsappCredential } from '../src/services/nicheProviders';
+import { getDograhCredential, sendDograhCall, verifyDograhWebhookSecret } from '../src/services/dograh';
+const app = express(); app.use(express.json()); app.post('/api/webhooks/dograh', receiveDograhWebhook); app.use(nicheAutomationRouter);
 app.use((error: Error & { statusCode?: number; issues?: unknown }, _req: Request, res: Response, _next: NextFunction) => res.status(error.statusCode || (error.issues ? 400 : 500)).json({ error: error.message }));
 const phone = '+923001234567'; const config = { ...defaultAutomation, whatsappEnabled: true, voiceEnabled: true, remindersEnabled: true, templateName: 'appointment_reminder' };
 const profile = { name: 'Automation fixture', country: 'PK', industry: 'healthcare', currency: 'PKR', timezone: 'Asia/Karachi', languages: ['en'], primaryLanguage: 'en', slotMinutes: 30, bufferMinutes: 0, workingHours: Array.from({ length: 7 }, (_, day) => ({ day, enabled: true, start: '09:00', end: '17:00' })) };
@@ -26,8 +28,8 @@ beforeEach(async () => {
   await prisma.agent.createMany({ data: ['healthcare', 'sales'].map(department => ({ tenantId: actor.tenantId, department, name: `${department} fixture`, isActive: true })) });
   actor.role = 'admin'; vi.clearAllMocks();
   vi.mocked(whatsappCredential).mockResolvedValue({ accessToken: 'fixture-token', phoneNumberId: '12345678', wabaId: '87654321' });
-  vi.mocked(sendNicheWhatsApp).mockResolvedValue('wamid.accepted-fixture'); vi.mocked(sendNicheVoiceCall).mockResolvedValue(randomUUID()); vi.mocked(verifyReminderTemplate).mockResolvedValue({ name: 'appointment_reminder', language: 'en_US', text: 'Appointment reminder {{1}}' }); vi.mocked(verifyNicheVoiceRequest).mockResolvedValue(null);
-  vi.mocked(getVoiceCredential).mockResolvedValue({ apiKey: 'fixture-key', assistantId: randomUUID(), phoneNumberId: randomUUID(), webhookSecret: 'fixture-secret-that-is-long-enough' });
+  vi.mocked(sendNicheWhatsApp).mockResolvedValue('wamid.accepted-fixture'); vi.mocked(sendDograhCall).mockResolvedValue('dograh-run-fixture'); vi.mocked(verifyReminderTemplate).mockResolvedValue({ name: 'appointment_reminder', language: 'en_US', text: 'Appointment reminder {{1}}' });
+  vi.mocked(getDograhCredential).mockResolvedValue({ apiUrl: 'https://dograh.example.test', apiKey: 'fixture-api-key', agentId: 'fixture-agent', webhookSecret: 'fixture-secret-that-is-long-enough-for-tests' }); vi.mocked(verifyDograhWebhookSecret).mockReturnValue(true);
   await prisma.nicheDispatch.deleteMany({ where: { tenantId: actor.tenantId } }); await prisma.nicheSession.deleteMany({ where: { tenantId: actor.tenantId } }); await prisma.scheduledAppointment.deleteMany({ where: { tenantId: actor.tenantId } }); await prisma.bookingResource.deleteMany({ where: { tenantId: actor.tenantId } }); await prisma.lead.deleteMany({ where: { tenantId: actor.tenantId } }); await prisma.propertyListing.deleteMany({ where: { tenantId: actor.tenantId } });
   await prisma.nicheAutomation.upsert({ where: { tenantId: actor.tenantId }, create: { tenantId: actor.tenantId, config }, update: { config } }); await prisma.businessProfile.upsert({ where: { tenantId: actor.tenantId }, create: { tenantId: actor.tenantId, profile }, update: { profile } });
   const resource = await prisma.bookingResource.create({ data: { tenantId: actor.tenantId, kind: 'healthcare', name: 'Dr Fixture', calendarId: 'fixture-calendar' } }); await prisma.clinicService.create({ data: { tenantId: actor.tenantId, resourceId: resource.id, name: 'Consultation', durationMinutes: 30 } });
@@ -91,14 +93,28 @@ describe('Reception automation', () => {
     const expired = await enqueueNicheDispatch(actor.tenantId, 'reply-expired', 'whatsapp_reply', { phone, text: 'Fixture', receivedAt: new Date(0).toISOString() }); await runNicheDispatch(expired.id); expect(sendNicheWhatsApp).toHaveBeenCalledTimes(1);
   });
   it('calls only after explicit CALL and cancels queued callbacks after STOP', async () => {
-    await turn('hello'); expect(await prisma.nicheDispatch.count({ where: { tenantId: actor.tenantId, type: 'voice_call' } })).toBe(0); await turn('CALL', 'call-request'); await turn('CALL', 'call-request'); const job = await prisma.nicheDispatch.findFirstOrThrow({ where: { tenantId: actor.tenantId, type: 'voice_call' } }); await turn('STOP'); await runNicheDispatch(job.id); expect(sendNicheVoiceCall).not.toHaveBeenCalled();
-    await turn('START'); await turn('CALL', 'second-call'); const next = await prisma.nicheDispatch.findFirstOrThrow({ where: { tenantId: actor.tenantId, key: 'callback:second-call' } }); await runNicheDispatch(next.id); expect(sendNicheVoiceCall).toHaveBeenCalledTimes(1);
+    await turn('hello'); expect(await prisma.nicheDispatch.count({ where: { tenantId: actor.tenantId, type: 'voice_call' } })).toBe(0); await turn('CALL', 'call-request'); await turn('CALL', 'call-request'); const job = await prisma.nicheDispatch.findFirstOrThrow({ where: { tenantId: actor.tenantId, type: 'voice_call' } }); await turn('STOP'); await runNicheDispatch(job.id); expect(sendDograhCall).not.toHaveBeenCalled();
+    await turn('START'); await turn('CALL', 'second-call'); const next = await prisma.nicheDispatch.findFirstOrThrow({ where: { tenantId: actor.tenantId, key: 'callback:second-call' } }); await runNicheDispatch(next.id); expect(sendDograhCall).toHaveBeenCalledTimes(1);
   });
-  it('rejects forged voice calls and caches authenticated tool results', async () => {
-    const callId = randomUUID(); const body = { message: { type: 'tool-calls', call: { id: callId }, toolCallList: [{ id: 'tool-1', name: 'workforce_turn', parameters: { text: 'hello' } }] } };
-    expect((await request(app).post(`/webhook/${actor.tenantId}/niche-voice`).send(body)).status).toBe(403);
-    vi.mocked(verifyNicheVoiceRequest).mockResolvedValue({ id: callId, assistantId: randomUUID(), phoneNumberId: randomUUID(), customer: { number: phone }, status: 'in-progress' });
-    const first = await request(app).post(`/webhook/${actor.tenantId}/niche-voice`).set('Authorization', 'Bearer fixture').send(body); const second = await request(app).post(`/webhook/${actor.tenantId}/niche-voice`).set('Authorization', 'Bearer fixture').send(body); expect(first.status).toBe(200); expect(second.body).toEqual(first.body); expect(first.body.results[0].toolCallId).toBe('tool-1');
+  it('rejects forged Dograh callbacks and tenant-isolates call results', async () => {
+    const body = { tenant_id: actor.tenantId, workflow_run_id: 918273, event: 'call.ended', status: 'completed', duration: 44, transcript: [{ speaker: 'user', text: 'I need an appointment' }] };
+    vi.mocked(verifyDograhWebhookSecret).mockReturnValue(false);
+    expect((await request(app).post('/api/webhooks/dograh').set('Authorization', 'Bearer forged').send(body)).status).toBe(401);
+    vi.mocked(verifyDograhWebhookSecret).mockReturnValue(true);
+    const started = await request(app).post('/api/webhooks/dograh').set('Authorization', 'Bearer fixture-secret').send({ tenant_id: actor.tenantId, workflow_run_id: 918273, event: 'call.started' });
+    expect(started.status).toBe(200); expect((await prisma.voiceSession.findUnique({ where: { callId: '918273' } }))?.status).toBe('active');
+    const first = await request(app).post('/api/webhooks/dograh').set('Authorization', 'Bearer fixture-secret').send(body);
+    expect(first.status).toBe(200); expect(first.body).toMatchObject({ received: true, call_id: '918273' });
+    expect(await prisma.voiceSession.findUnique({ where: { callId: '918273' } })).toMatchObject({ tenantId: actor.tenantId, provider: 'DOGRAH', status: 'completed' });
+    const foreignTenant = (await prisma.tenant.create({ data: { name: `dograh-foreign-${randomUUID()}` } })).id;
+    const crossTenant = await request(app).post('/api/webhooks/dograh').set('Authorization', 'Bearer fixture-secret').send({ ...body, tenant_id: foreignTenant });
+    expect(crossTenant.status).toBe(409); await prisma.tenant.delete({ where: { id: foreignTenant } });
+  });
+  it('routes authenticated Dograh workforce_turn tools through existing reception and Calendar booking rules', async () => {
+    const payload = { tenant_id: actor.tenantId, event: 'function_call', workflow_run_id: 2468, tool_call_id: 'tool-call-1', function: { name: 'workforce_turn', arguments: { text: 'hello', phone } } };
+    const response = await request(app).post('/api/webhooks/dograh').set('Authorization', 'Bearer fixture-secret').send(payload);
+    const replay = await request(app).post('/api/webhooks/dograh').set('Authorization', 'Bearer fixture-secret').send(payload);
+    expect(response.status).toBe(200); expect(response.body.result.reply).toContain('automated reception assistant'); expect(replay.body).toEqual(response.body);
   });
   it('binds encrypted session data to its tenant', () => { expect(() => openAutomation(sealAutomation({ phone }, actor.tenantId), 'foreign-tenant')).toThrow('could not be decrypted'); });
   it('carries customer opt-out across voice and WhatsApp and restarts after a business flow change', async () => {

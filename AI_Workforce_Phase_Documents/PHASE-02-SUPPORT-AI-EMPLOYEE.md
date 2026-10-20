@@ -22,7 +22,7 @@ Phase 01.
 - Support agent configuration
 - Business tone/instructions
 - Direct Shopify Action Execution (Order Cancel, Order Refund via Shopify API)
-- Real-Time Voice/Call Agent Support (Inbound/Outbound Voice Calls via Retell AI / Vapi integrations)
+- Real-Time Voice/Call Agent Support (Inbound/Outbound Voice Calls via Dograh AI / Dograh integrations)
 - Human-in-the-Loop (HITL) Approval Flow for high-value refunds or exception actions
 - Healthcare & Clinic Patient Receptionist workflows for administrative appointment scheduling, slot locking, intake, and routing
 - Voice and WhatsApp pre-appointment confirmation workflows, including 24-hour reminders and acknowledgement tracking
@@ -30,7 +30,7 @@ Phase 01.
 - Tenant-scoped idempotency for refunds, cancellations, slot locks, and appointment actions
 
 ## Message Flow
-WhatsApp / Voice Call (Retell AI / Vapi)
+WhatsApp / Voice Call (Dograh AI / Dograh)
 → Webhook
 → Fast acknowledgement
 → BullMQ

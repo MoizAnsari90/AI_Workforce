@@ -38,7 +38,7 @@ Transcription idempotency is scoped to tenant, user, recording request ID and au
 
 Raw audio is not written to application files or the database. The existing `IdempotencyLog` stores the transcript/English interpretation for replay, so text follows that table's retention and access policies. Cancellation cannot undo an inference already started by the provider.
 
-Transcription uses Gemini quota and may incur provider charges. It does not separately consume a workflow-question credit; sending the reviewed question uses the existing one-credit assistant flow. No Vapi/telephone service is involved. Automatic SDK retries are disabled for transcription to limit uncertain repeated inference.
+Transcription uses Gemini quota and may incur provider charges. It does not separately consume a workflow-question credit; sending the reviewed question uses the existing one-credit assistant flow. No telephony service is involved. Automatic SDK retries are disabled for transcription to limit uncertain repeated inference.
 
 ## Verification
 

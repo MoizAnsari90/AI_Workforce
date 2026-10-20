@@ -12,13 +12,13 @@ export class TemplateService {
       {
         name: 'E-commerce Operations AI Bundle',
         category: 'ecommerce',
-        description: 'Shopify Inventory Sync + WhatsApp Support + Refund Action + Voice Call Back',
+        description: 'Shopify Inventory Sync + WhatsApp Support + Refund Action + Dograh Voice Call Back',
         definition: {
           nodes: [
             { id: 'node_1', type: 'trigger', source: 'whatsapp' },
             { id: 'node_2', type: 'agent', agentName: 'Support Agent', role: 'customer_service' },
             { id: 'node_3', type: 'action', tool: 'shopify_refund', requiresApproval: true },
-            { id: 'node_4', type: 'voice', provider: 'RETELL', triggerOnEscalation: true },
+            { id: 'node_4', type: 'voice', provider: 'DOGRAH', triggerOnEscalation: true },
           ],
           transitions: [
             { from: 'node_1', to: 'node_2' },
@@ -30,12 +30,12 @@ export class TemplateService {
       {
         name: 'Real Estate Lead Qualification Bundle',
         category: 'real_estate',
-        description: 'Form/WhatsApp Lead Capture + Vapi Auto Voice Call + Appointment Booking',
+        description: 'Form/WhatsApp Lead Capture + Dograh AI Voice Call + Appointment Booking',
         definition: {
           nodes: [
             { id: 'node_1', type: 'trigger', source: 'crm_webhook' },
             { id: 'node_2', type: 'agent', agentName: 'Sales Qualification Agent', role: 'sales' },
-            { id: 'node_3', type: 'voice', provider: 'VAPI', action: 'auto_qualify_call' },
+            { id: 'node_3', type: 'voice', provider: 'DOGRAH', action: 'auto_qualify_call' },
             { id: 'node_4', type: 'action', tool: 'crm_pipeline', stage: 'Booked' },
           ],
           transitions: [
@@ -54,7 +54,7 @@ export class TemplateService {
             { id: 'node_1', type: 'trigger', source: 'whatsapp_or_web_chat' },
             { id: 'node_2', type: 'agent', agentName: 'Clinic Receptionist Agent', role: 'healthcare_receptionist' },
             { id: 'node_3', type: 'action', tool: 'calendar_booking_and_slot_locking', requiresApproval: false },
-            { id: 'node_4', type: 'voice', provider: 'VAPI', action: 'appointment_voice_confirmation' },
+            { id: 'node_4', type: 'voice', provider: 'DOGRAH', action: 'appointment_voice_confirmation' },
           ],
           transitions: [
             { from: 'node_1', to: 'node_2' },
