@@ -2,7 +2,7 @@
 
 client_id = "62982db72742c0960e13397aa7f987fa"
 name = "AI Workforce"
-application_url = "https://angled-subwoofer-praising.ngrok-free.dev"
+application_url = "https://workforce-blue.vercel.app/dashboard/integrations"
 embedded = false
 
 [access_scopes]
@@ -10,7 +10,7 @@ embedded = false
 scopes = "read_products,read_inventory,write_inventory,read_orders,write_orders"
 
 [auth]
-redirect_urls = [ "https://angled-subwoofer-praising.ngrok-free.dev/api/v1/shopify/oauth/callback" ]
+redirect_urls = [ "https://ai-workforce-api-phi.vercel.app/api/v1/shopify/oauth/callback" ]
 
 [webhooks]
 api_version = "2026-07"
