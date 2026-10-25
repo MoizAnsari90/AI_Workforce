@@ -42,3 +42,11 @@ Inbound support webhooks receive success only after Redis accepts their BullMQ j
 ## Release acceptance
 
 After deployment, verify browser registration/login/session checks, `/health`, tenant permissions, controlled WhatsApp send/receive and delivery receipts, connected commerce reads, Google Calendar create/cancel, Gemini response generation, and the enabled voice/billing flows. Rehearse worker restart/Redis outages and encrypted backup restore into a disposable database. External credentials, real domains, recipient numbers, and provider accounts must be supplied by the deployment owner. No real calls, payments, or customer messages are sent by the automated regression suite.
+
+## GitHub and Vercel release gate
+
+GitHub Actions runs deployment checks, the integration suite against isolated PostgreSQL and Redis, the production build, and the production dependency audit on branch pushes and pull requests targeting `main`. Before enabling production releases, protect `main` and require `CI / verify` plus `Production migration / migrate` to pass.
+
+Create a GitHub Environment named `production`, require an authorized reviewer, and add `PRODUCTION_DATABASE_URL` as an environment secret. It must be the direct, cloud-accessible PostgreSQL URL used for Prisma migrations; do not put it in Git, workflow YAML, or pull-request CI. After CI and review pass, run the `Production migration` workflow on the reviewed release commit, select `yes`, obtain environment approval, and wait for the migration job to succeed before merging to `main`. Use backward-compatible migrations so the current production API can run while the schema changes are applied. Vercel then deploys the merge from GitHub; its API build no longer changes the database.
+
+The environment reviewer, environment secret, and `main` branch protection are GitHub account settings and must be configured before merging. Preview deployments do not receive the production migration secret.

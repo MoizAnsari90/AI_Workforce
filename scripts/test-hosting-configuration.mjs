@@ -59,6 +59,19 @@ test('Vercel builds Next.js server routes with room for bounded voice upstream c
   assert.equal(vercel.functions['app/api/**/*'].maxDuration, 60);
   assert.doesNotMatch(vercel.buildCommand + vercel.installCommand, /gcloud|billingEnabled/);
 });
+test('Vercel API builds do not migrate production; manual migrations require the protected GitHub environment', () => {
+  const api = JSON.parse(fs.readFileSync('apps/api/vercel.json', 'utf8'));
+  assert.doesNotMatch(api.buildCommand, /run-migrations/);
+  const workflow = fs.readFileSync('.github/workflows/production-migration.yml', 'utf8');
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /environment:\s*production/);
+  assert.match(workflow, /PRODUCTION_DATABASE_URL/);
+  assert.match(workflow, /run: node scripts\/run-migrations\.cjs/);
+  assert.match(workflow, /CONFIRM_PRODUCTION_MIGRATION.*inputs\.confirm_production_migration/);
+  assert.match(workflow, /!= "yes"/);
+  assert.match(workflow, /contents:\s*read/);
+  assert.doesNotMatch(workflow, /pull_request_target|DATABASE_URL:\s*postgres/i);
+});
 test('Firebase entry page requires a real HTTPS origin and escapes it', () => {
   for (const value of [undefined, 'http://foo.vercel.app', 'https://user:secret@foo.vercel.app', 'https://foo.vercel.app/path', 'https://foo.vercel.app/?secret=abc', 'https://localhost']) {
     assert.throws(() => dashboardOrigin(value));

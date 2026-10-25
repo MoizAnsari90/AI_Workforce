@@ -1,0 +1,56 @@
+name: Production migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_production_migration:
+        description: Confirm that this reviewed commit is ready to migrate production
+        type: choice
+        options:
+          - no
+          - yes
+        default: no
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-database-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    env:
+      NODE_ENV: production
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+    steps:
+      - name: Require explicit production confirmation
+        env:
+          CONFIRM_PRODUCTION_MIGRATION: ${{ inputs.confirm_production_migration }}
+        run: |
+          if [ "$CONFIRM_PRODUCTION_MIGRATION" != "yes" ]; then
+            echo "Select yes to run production migrations."
+            exit 1
+          fi
+
+      - name: Checkout selected release commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install from lockfile
+        run: npm ci --include=dev
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate --workspace=@ai-employee/api
+
+      - name: Apply reviewed migrations
+        run: node scripts/run-migrations.cjs
