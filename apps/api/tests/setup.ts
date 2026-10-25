@@ -63,7 +63,13 @@ async function clearAuthRateLimitTestKeys() {
 }
 
 beforeAll(async () => {
-  await rateLimitTestRedis.connect();
+  if (process.env.GITHUB_ACTIONS === 'true') console.log('::notice title=Integration test stage::Connect to the isolated Redis test database');
+  try {
+    await rateLimitTestRedis.connect();
+  } catch (error) {
+    if (process.env.GITHUB_ACTIONS === 'true') console.error('::error title=Redis test setup failed::Could not connect to the isolated Redis service');
+    throw error;
+  }
   await clearAuthRateLimitTestKeys();
 });
 
