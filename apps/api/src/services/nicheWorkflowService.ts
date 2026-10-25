@@ -6,6 +6,7 @@ import { ConflictError, NotFoundError, ServiceUnavailableError, ValidationError 
 import { getBusinessProfile } from './businessProfileService';
 import { availableSlots, dateBounds } from './calendarAvailability';
 import { bookingCalendarContext, resourceCalendarBusy, syncAppointmentEvent } from './googleCalendarService';
+import { decryptMedicalData, encryptMedicalData } from './medicalDataEncryption';
 
 export const nicheKind = z.enum(['real_estate', 'healthcare']);
 export type NicheKind = z.infer<typeof nicheKind>;
@@ -26,12 +27,14 @@ function contactKey() {
   if (!key || key.length < 32) throw new ServiceUnavailableError('Integration encryption must be configured before storing appointment contacts.');
   return crypto.createHash('sha256').update(`appointment-contact:${key}`).digest();
 }
-function encryptContact(value: z.infer<typeof bookingInput>['contact']) {
+function encryptContact(value: z.infer<typeof bookingInput>['contact'], tenantId: string, kind: NicheKind) {
+  if (kind === 'healthcare') return encryptMedicalData(value, tenantId);
   const iv = crypto.randomBytes(12); const cipher = crypto.createCipheriv('aes-256-gcm', contactKey(), iv);
   const encrypted = Buffer.concat([cipher.update(JSON.stringify(value)), cipher.final()]);
   return [iv, cipher.getAuthTag(), encrypted].map(part => part.toString('base64url')).join('.');
 }
-export function decryptAppointmentContact(value: string) {
+export function decryptAppointmentContact(value: string, tenantId: string) {
+  if (value.startsWith('m1.')) return bookingInput.shape.contact.parse(decryptMedicalData(value, tenantId));
   try { const [iv, tag, content] = value.split('.').map(part => Buffer.from(part, 'base64url')); const decipher = crypto.createDecipheriv('aes-256-gcm', contactKey(), iv); decipher.setAuthTag(tag); return bookingInput.shape.contact.parse(JSON.parse(Buffer.concat([decipher.update(content), decipher.final()]).toString())); }
   catch { throw new ServiceUnavailableError('Appointment contact could not be read. Restore the original encryption key.'); }
 }
@@ -79,7 +82,7 @@ export async function nicheOverview(tenantId: string, actorId: string, kind: Nic
     kind === 'real_estate' ? prisma.lead.findMany({ where: { tenantId, source: 'real_estate' }, orderBy: { createdAt: 'desc' }, take: 100 }) : [],
     prisma.scheduledAppointment.findMany({ where: { tenantId, kind }, orderBy: { createdAt: 'desc' }, take: 100 }),
   ]);
-  const safeAppointments = appointments.map(({ encryptedContact, requestHash: _hash, idempotencyKey: _key, connectionId: _connection, ...booking }) => ({ ...booking, contact: decryptAppointmentContact(encryptedContact) }));
+  const safeAppointments = appointments.map(({ encryptedContact, requestHash: _hash, idempotencyKey: _key, connectionId: _connection, ...booking }) => ({ ...booking, contact: decryptAppointmentContact(encryptedContact, booking.tenantId) }));
   await audit(prisma, tenantId, actorId, 'niche_records_viewed', kind);
   return { profile: profile.profile, resources, services, properties, leads, appointments: safeAppointments, limit: 100 };
 }
@@ -146,7 +149,7 @@ export async function createAppointment(tenantId: string, actorId: string, kind:
     const availability = await nicheAvailability(tenantId, kind, input.resourceId, date, input.serviceId);
     const slot = availability.slots.find(item => Date.parse(item.start) === start.getTime());
     if (!slot || authorization.connectionId !== availability.connectionId) throw new ConflictError('This time is no longer available. Check availability again.');
-    const saved = await tx.scheduledAppointment.create({ data: { tenantId, resourceId: input.resourceId, kind, serviceId: input.serviceId, propertyId: input.propertyId, leadId: input.leadId, startTime: start, endTime: new Date(slot.end), bufferMinutes: profile.bufferMinutes, timezone: profile.timezone, encryptedContact: encryptContact(input.contact), calendarId: resource.calendarId, connectionId: authorization.connectionId, eventId: crypto.randomUUID().replace(/-/g, ''), idempotencyKey: input.idempotencyKey, requestHash: hash } });
+    const saved = await tx.scheduledAppointment.create({ data: { tenantId, resourceId: input.resourceId, kind, serviceId: input.serviceId, propertyId: input.propertyId, leadId: input.leadId, startTime: start, endTime: new Date(slot.end), bufferMinutes: profile.bufferMinutes, timezone: profile.timezone, encryptedContact: encryptContact(input.contact, tenantId, kind), calendarId: resource.calendarId, connectionId: authorization.connectionId, eventId: crypto.randomUUID().replace(/-/g, ''), idempotencyKey: input.idempotencyKey, requestHash: hash } });
     await audit(tx, tenantId, actorId, 'appointment_reserved', saved.id); return saved;
   }, { timeout: 60_000, maxWait: 10_000 });
   return syncAppointment(tenantId, actorId, kind, booking.id);

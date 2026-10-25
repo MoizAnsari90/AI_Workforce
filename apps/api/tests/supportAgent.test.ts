@@ -203,6 +203,27 @@ describe('Support Agent Message Processing', () => {
     expect(lastSent.text).toContain('Monday to Friday');
   });
 
+  it('pauses and audits the conversation when outbound provider delivery fails', async () => {
+    const sendSpy = vi.spyOn(whatsappService, 'sendMessage').mockRejectedValueOnce(new Error('Synthetic provider failure'));
+    const message = {
+      metaMessageId: `wamid.provider-failure.${Date.now()}`,
+      fromPhone: '+15550000009',
+      customerName: 'Provider Failure Customer',
+      text: 'What are your opening hours?',
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      const result = await supportAgentService.processInboundMessage(tenantId, message);
+      expect(result).toMatchObject({ aiActive: false, responseSource: 'human_inbox', escalated: true });
+      expect(await prisma.conversation.findFirst({ where: { id: result.conversationId, tenantId } })).toMatchObject({ aiActive: false });
+      expect(await prisma.message.findFirst({ where: { conversationId: result.conversationId, tenantId, textContent: message.text } })).not.toBeNull();
+      expect(await prisma.auditLog.findFirst({ where: { tenantId, entityId: result.conversationId, operation: 'ai_escalated' } })).not.toBeNull();
+    } finally {
+      sendSpy.mockRestore();
+    }
+  });
+
   it('routes a customer stock question through the live Shopify tool and replies with its result', async () => {
     const stockSpy = vi.spyOn(ShopifyTool, 'checkStock').mockResolvedValue({
       success: true,

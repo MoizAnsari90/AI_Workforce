@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma';
 import { authenticate } from '../middleware/authMiddleware';
 import { enforceTenantIsolation } from '../middleware/tenantIsolationMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
-import { automationConfig, defaultAutomation, enqueueNicheDispatch, getAutomationConfig, openAutomation, sealAutomation } from '../services/nicheAutomationStore';
+import { automationConfig, defaultAutomation, enqueueNicheDispatch, getAutomationConfig, openAutomation, openAutomationData, sealAutomationData } from '../services/nicheAutomationStore';
 import { verifyReminderTemplate, whatsappCredential } from '../services/nicheProviders';
 import { connectDograh, dograhWebhookUrl, getDograhCredential, sendDograhCall } from '../services/dograh';
 import { type NicheConversationState } from '../services/nicheConversationService';
@@ -20,8 +20,8 @@ nicheAutomationRouter.use(base, authenticate, enforceTenantIsolation, requireRol
 nicheAutomationRouter.get(base, async (req, res, next) => {
   try {
     const tenantId = req.tenantId!; const [config, sessions, jobs, credential, voiceSessions] = await Promise.all([getAutomationConfig(tenantId), prisma.nicheSession.findMany({ where: { tenantId }, orderBy: { updatedAt: 'desc' }, take: 100 }), prisma.nicheDispatch.findMany({ where: { tenantId, type: { notIn: ['turn_receipt', 'inbound', 'provider_delivery_receipt'] } }, orderBy: { createdAt: 'desc' }, take: 100, select: { id: true, type: true, status: true, providerId: true, createdAt: true } }), IntegrationService.getCredential(tenantId, 'dograh'), prisma.voiceSession.findMany({ where: { tenantId, provider: 'DOGRAH' }, orderBy: { createdAt: 'desc' }, take: 30, select: { callId: true, status: true, metadata: true, createdAt: true } })]);
-    let webhookUrl: string | null = null; try { webhookUrl = dograhWebhookUrl(); } catch { /* Public origin is optional until voice setup. */ }
-    res.json({ success: true, data: { config: config || defaultAutomation, voiceConnected: !!credential, webhookUrl, voiceTests: voiceSessions.filter(item => (item.metadata as { purpose?: string } | null)?.purpose === 'connection_test').map(item => ({ callId: item.callId, status: item.status, createdAt: item.createdAt })), sessions: sessions.map(item => { const state = openAutomation<NicheConversationState>(item.encryptedState, tenantId); return { id: item.id, channel: item.channel, name: state.name || 'New contact', phone: state.phone, paused: item.paused, optedOut: item.optedOut, handoffReason: item.handoffReason, stage: state.stage, lastReply: state.lastReply, lastCustomerMessage: state.lastCustomerMessage, updatedAt: item.updatedAt }; }), jobs } });
+    let webhookUrl: string | null = null; try { webhookUrl = dograhWebhookUrl(tenantId); } catch { /* Public origin is optional until voice setup. */ }
+    res.json({ success: true, data: { config: config || defaultAutomation, voiceConnected: !!credential, webhookUrl, voiceTests: voiceSessions.filter(item => (item.metadata as { purpose?: string } | null)?.purpose === 'connection_test').map(item => ({ callId: item.callId, status: item.status, createdAt: item.createdAt })), sessions: sessions.map(item => { const state = openAutomationData<NicheConversationState>(item.encryptedState, tenantId); return { id: item.id, channel: item.channel, name: state.name || 'New contact', phone: state.phone, paused: item.paused, optedOut: item.optedOut, handoffReason: item.handoffReason, stage: state.stage, lastReply: state.lastReply, lastCustomerMessage: state.lastCustomerMessage, updatedAt: item.updatedAt }; }), jobs } });
   } catch (error) { next(error); }
 });
 nicheAutomationRouter.put(base, async (req, res, next) => {
@@ -78,8 +78,9 @@ nicheAutomationRouter.post(`${base}/sessions/:id/resume`, async (req, res, next)
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`session:${req.tenantId!}:${item.customerHash}`}))`;
       const current = await tx.nicheSession.findUniqueOrThrow({ where: { id: item.id } });
       if (current.optedOut) throw new ConflictError('This customer opted out. Only their START message can opt them in again.');
-      const state = openAutomation<NicheConversationState>(current.encryptedState, req.tenantId!);
-      await tx.nicheSession.update({ where: { id: item.id }, data: { paused: false, handoffReason: null, encryptedState: sealAutomation({ phone: state.phone, stage: 'welcome' }, req.tenantId!) } });
+      const state = openAutomationData<NicheConversationState>(current.encryptedState, req.tenantId!);
+      const config = await getAutomationConfig(req.tenantId!);
+      await tx.nicheSession.update({ where: { id: item.id }, data: { paused: false, handoffReason: null, encryptedState: sealAutomationData({ phone: state.phone, stage: 'welcome' }, req.tenantId!, config?.kind || defaultAutomation.kind) } });
       await tx.auditLog.create({ data: { tenantId: req.tenantId!, actorId: req.user!.userId, actorType: 'user', operation: 'receptionist_resumed', entityType: 'niche_session', entityId: item.id } });
     }, { maxWait: 60_000 });
     res.json({ success: true, data: { resumed: true } });
@@ -91,10 +92,11 @@ nicheAutomationRouter.post(`${base}/sessions/:id/reply`, async (req, res, next) 
     const item = await prisma.nicheSession.findFirst({ where: { tenantId: req.tenantId!, id: z.string().uuid().parse(req.params.id), channel: 'whatsapp' } }); if (!item) throw new NotFoundError('WhatsApp session not found.');
     if (item.optedOut) throw new ConflictError('This customer opted out. Wait for their START message.');
     const inbound = await prisma.nicheDispatch.findFirst({ where: { tenantId: req.tenantId!, scope: item.customerHash, type: 'inbound' }, orderBy: { createdAt: 'desc' } });
-    const receivedAt = inbound ? openAutomation<{ receivedAt: string }>(inbound.encryptedPayload, req.tenantId!).receivedAt : '';
+    const receivedAt = inbound ? openAutomationData<{ receivedAt: string }>(inbound.encryptedPayload, req.tenantId!).receivedAt : '';
     if (!receivedAt || Date.parse(receivedAt) < Date.now() - 23 * 3600_000) throw new ConflictError('The reply window expired. Wait for a new customer message.');
-    const state = openAutomation<NicheConversationState>(item.encryptedState, req.tenantId!);
-    const job = await enqueueNicheDispatch(req.tenantId!, `human:${requestId}`, 'whatsapp_reply', { phone: state.phone, text, receivedAt, humanReply: true });
+    const state = openAutomationData<NicheConversationState>(item.encryptedState, req.tenantId!);
+    const config = await getAutomationConfig(req.tenantId!);
+    const job = await enqueueNicheDispatch(req.tenantId!, `human:${requestId}`, 'whatsapp_reply', { phone: state.phone, text, receivedAt, humanReply: true }, undefined, config?.kind || defaultAutomation.kind);
     await prisma.nicheSession.updateMany({ where: { id: item.id, optedOut: false }, data: { paused: true, handoffReason: 'staff_reply' } });
     res.status(202).json({ success: true, data: { id: job.id, status: job.status } });
   } catch (error) { next(error); }

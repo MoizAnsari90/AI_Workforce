@@ -1,4 +1,7 @@
 {
+  "Voice is locked to the free self-hosted engine. Paid providers and automatic upgrades are disabled.": "آواز صرف مفت، اپنے سرور پر چلنے والی سروس استعمال کر سکتی ہے۔ ادائیگی والی سروسز اور خودکار اپ گریڈ بند ہیں۔",
+  "The free voice service is unavailable or busy. Please retry your recording or type your question.": "مفت آواز کی سروس دستیاب نہیں یا مصروف ہے۔ اسی ریکارڈنگ کی دوبارہ کوشش کریں یا اپنا سوال ٹائپ کریں۔",
+  "The free voice service is unavailable. Please retry your recording or type your question.": "مفت آواز کی سروس دستیاب نہیں۔ اسی ریکارڈنگ کی دوبارہ کوشش کریں یا اپنا سوال ٹائپ کریں۔",
   "Interface language": "انٹرفیس کی زبان",
   "Workspace": "ورک اسپیس",
   "Overview": "جائزہ",

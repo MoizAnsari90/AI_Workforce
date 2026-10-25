@@ -3,6 +3,14 @@ import request from 'supertest';
 import { app } from '../src/app';
 
 describe('Health Check API', () => {
+  it('GET /livez should include baseline security headers', async () => {
+    const res = await request(app).get('/livez');
+    expect(res.status).toBe(200);
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+    expect(res.headers['referrer-policy']).toBe('no-referrer');
+  });
+
   it('GET /health should return 200 and healthy status', async () => {
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);

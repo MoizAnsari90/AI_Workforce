@@ -92,6 +92,7 @@ export interface JWTPayload {
   tenantId: string;
   email: string;
   role: RoleName;
+  tokenVersion?: number;
   iat?: number;
   exp?: number;
 }

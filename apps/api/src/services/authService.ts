@@ -24,6 +24,7 @@ export function generateToken(payload: JWTPayload): string {
       tenantId: payload.tenantId,
       email: payload.email,
       role: payload.role,
+      tokenVersion: payload.tokenVersion ?? 0,
     },
     env.JWT_SECRET,
     { expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'] }
@@ -159,6 +160,7 @@ export async function registerTenantAndAdmin(input: RegisterInput) {
     tenantId: result.tenant.id,
     email: result.user.email,
     role: StandardRoles.ADMIN,
+    tokenVersion: result.user.tokenVersion,
   });
 
   logger.info('Tenant and admin registered successfully', {
@@ -232,6 +234,7 @@ export async function login(input: LoginInput) {
     tenantId: user.tenantId,
     email: user.email,
     role: primaryRole,
+    tokenVersion: user.tokenVersion,
   });
 
   await recordAuditLog({
@@ -259,7 +262,7 @@ export async function login(input: LoginInput) {
   };
 }
 
-export async function resolveUserContext(userId: string) {
+export async function resolveUserContext(userId: string, tokenVersion?: number) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: {
@@ -284,6 +287,10 @@ export async function resolveUserContext(userId: string) {
     throw new NotFoundError('User not found');
   }
 
+  if (tokenVersion !== undefined && tokenVersion !== user.tokenVersion) {
+    throw new UnauthorizedError('Invalid or expired authentication token');
+  }
+
   const primaryRole = (user.userRoles[0]?.role.name as RoleName) || StandardRoles.AGENT;
   const permissionsSet = new Set<string>();
   user.userRoles.forEach((ur) => {
@@ -300,4 +307,11 @@ export async function resolveUserContext(userId: string) {
     role: primaryRole,
     permissions: Array.from(permissionsSet),
   };
+}
+
+export async function revokeUserSessions(userId: string) {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { tokenVersion: { increment: 1 } },
+  });
 }

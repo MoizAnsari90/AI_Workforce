@@ -7,7 +7,7 @@ embedded = false
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_products,read_inventory,write_inventory,read_orders,write_orders"
+scopes = "read_products,read_inventory,read_orders,read_locations,write_orders"
 
 [auth]
 redirect_urls = [ "https://ai-workforce-api-phi.vercel.app/api/v1/shopify/oauth/callback" ]
@@ -16,4 +16,4 @@ redirect_urls = [ "https://ai-workforce-api-phi.vercel.app/api/v1/shopify/oauth/
 api_version = "2026-07"
 
 [build]
-automatically_update_urls_on_dev = true
+automatically_update_urls_on_dev = false

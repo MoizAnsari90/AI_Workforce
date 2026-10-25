@@ -1,4 +1,7 @@
 {
+  "Voice is locked to the free self-hosted engine. Paid providers and automatic upgrades are disabled.": "الصوت مقيد بالخدمة المجانية المستضافة ذاتيًا. الخدمات المدفوعة والترقيات التلقائية معطلة.",
+  "The free voice service is unavailable or busy. Please retry your recording or type your question.": "الخدمة الصوتية المجانية غير متاحة أو مشغولة. أعد محاولة التسجيل نفسه أو اكتب سؤالك.",
+  "The free voice service is unavailable. Please retry your recording or type your question.": "الخدمة الصوتية المجانية غير متاحة. أعد محاولة التسجيل نفسه أو اكتب سؤالك.",
   "Interface language": "لغة الواجهة",
   "Workspace": "مساحة العمل",
   "Overview": "نظرة عامة",

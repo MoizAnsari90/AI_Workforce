@@ -15,9 +15,9 @@ input, textarea { text-align:start; }
 html[dir="rtl"] .wf-password-field input { padding-right:14px; padding-left:48px; }
 html[dir="rtl"] .wf-password-field button { right:auto; left:8px; }
 @media(max-width:600px) {
-  .wf-topbar { height:auto !important; min-height:59px; flex-wrap:wrap; row-gap:10px; padding-block:10px; }
-  .wf-topbar-right { flex-wrap:wrap; gap:8px !important; }
-  .wf-language-control select { max-width:100px; font-size:11px; }
+  .wf-shell .wf-topbar { height:auto !important; min-height:59px; flex-wrap:wrap; row-gap:12px; padding-block:12px; }
+  .wf-topbar-right { flex-wrap:nowrap; gap:8px !important; }
+  .wf-language-control select { max-width:100px; min-height:40px; font-size:11px; }
   .wf-auth-heading { flex-wrap:wrap; gap:16px; }
   .wf-public-nav > div { flex-wrap:wrap; }
 }

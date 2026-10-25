@@ -88,7 +88,16 @@ describe('Niche workflows', () => {
     expect((await post(`${path()}/appointments`, { ...input, contact: { ...contact, name: 'Other name' } })).status).toBe(409);
     const stored = await prisma.scheduledAppointment.findUniqueOrThrow({ where: { id: response.body.data.id } }); expect(stored.encryptedContact).not.toContain(contact.name); expect(stored.encryptedContact).not.toContain(contact.phone);
     const overview = await get(path()); expect(overview.body.data.appointments[0].contact).toEqual(contact); expect(overview.text).not.toContain('encryptedContact');
-    const logs = await prisma.auditLog.findMany({ where: { tenantId: context.tenantId, entityId: stored.id } }); expect(JSON.stringify(logs)).not.toContain(contact.phone);
+    const logs = await prisma.auditLog.findMany({ where: { tenantId: context.tenantId, entityId: stored.id } }); expect(JSON.stringify(logs)).not.toContain(contact.phone); expect(JSON.stringify(logs)).not.toContain(contact.name);
+  });
+  it('stores patient contact with a versioned medical-data envelope and decrypts it', async () => {
+    const input = await setup();
+    const response = await post(`${path()}/appointments`, input);
+    expect(response.status).toBe(200);
+    const stored = await prisma.scheduledAppointment.findUniqueOrThrow({ where: { id: response.body.data.id } });
+    expect(stored.encryptedContact.startsWith('m1.')).toBe(true);
+    const { decryptAppointmentContact } = await import('../src/services/nicheWorkflowService');
+    expect(decryptAppointmentContact(stored.encryptedContact, context.tenantId)).toEqual(contact);
   });
   it('serializes concurrent requests and prevents double booking even across two resources sharing a calendar', async () => {
     const input = await setup(); const second = await doctor(); const secondService = await post(`${path()}/services`, { resourceId: second.id, name: 'Consultation', durationMinutes: 30 });

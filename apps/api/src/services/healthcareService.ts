@@ -153,7 +153,11 @@ export class HealthcareService {
         const lowerCaseMessage = message.toLowerCase();
 
         // Emergency detection (CRITICAL GUARDRAIL)
-        const emergencyKeywords = ['911', '1122', 'emergency', 'ambulance', 'chest pain', 'difficulty breathing', 'severe bleeding', 'stroke', 'heart attack', 'unconscious', 'seizure'];
+        const emergencyKeywords = [
+            '911', '1122', 'emergency', 'ambulance', 'chest pain', 'difficulty breathing', 'cannot breathe', "can't breathe", 'not breathing',
+            'throat is closing', 'anaphylaxis', 'severe allergic reaction', 'severe bleeding', 'uncontrolled bleeding', 'stroke', 'heart attack',
+            'unconscious', 'unresponsive', 'seizure', 'overdose', 'poisoning', 'suicide', 'suicidal', 'self-harm', 'self harm', 'hurt myself', 'kill myself',
+        ];
         if (emergencyKeywords.some(keyword => lowerCaseMessage.includes(keyword))) {
             return {
                 action: 'route_emergency',

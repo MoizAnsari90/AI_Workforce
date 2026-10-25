@@ -57,6 +57,17 @@ describe('HealthcareService Guardrails', () => {
             expect(result.action).toBe('route_emergency');
             expect(result.message).toContain('call emergency services immediately');
         });
+
+        it.each([
+            'I cannot breathe and my throat is closing',
+            'I may have overdosed on medication',
+            'I want to hurt myself tonight',
+        ])('routes emergency intent without diagnosis for: %s', async message => {
+            const result = await HealthcareService.evaluateGuardrails({ tenantId, message, agentId });
+            expect(result.action).toBe('route_emergency');
+            expect(result.message).toContain('call emergency services immediately');
+            expect(result.message).not.toMatch(/diagnos|prescrib|treatment/i);
+        });
     });
 
     // Test cases for Medical Diagnosis Prohibition

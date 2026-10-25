@@ -1,9 +1,11 @@
 // Synthetic speech only. Does not use a microphone or upload customer content.
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { root, sourceEnvironment } from './predeployment-config.mjs';
 
 const report = { timestamp: new Date().toISOString(), passed: false, syntheticAudioOnly: true, checks: {} };
+let stage = 'synthetic fixture';
 try {
   const source = fs.readFileSync(path.join(root, '.local/voice-fixture-source.wav'));
   let data;
@@ -22,14 +24,20 @@ try {
   audio.writeUInt16LE(2, 32); audio.writeUInt16LE(16, 34); audio.write('data', 36); audio.writeUInt32LE(data.length, 40); data.copy(audio, 44);
   fs.writeFileSync(path.join(root, '.local/voice-fixture.wav'), audio);
   Object.assign(process.env, sourceEnvironment(), { NODE_ENV: 'development', LOG_LEVEL: 'error' });
-  const { recognizeVoice, validateVoiceWav } = await import('../apps/api/dist/services/voiceQuestionService.js');
+  stage = 'load current free-only service';
+  // Verify current free-only source rather than possibly stale provider code.
+  const require = createRequire(import.meta.url);
+  require('tsx/cjs');
+  const { recognizeVoice, validateVoiceWav } = require('../apps/api/src/services/voiceQuestionService.ts');
   const seconds = validateVoiceWav(audio);
   report.checks.canonicalWav = { passed: true, seconds };
+  stage = 'self-hosted inference';
   const result = await recognizeVoice(audio);
   const correct = /approvals?/i.test(result.transcript) && /pending/i.test(result.transcript) && /approvals?/i.test(result.question) && /pending/i.test(result.question);
-  report.checks.liveGeminiAudioTranscription = { passed: correct, expectedQuestionRecognized: correct, serverServiceUsed: true };
+  report.checks.liveFreeWhisperTranscription = { passed: correct, expectedQuestionRecognized: correct, serverServiceUsed: true, paidFallbackDisabled: true };
   report.passed = correct;
 } catch {
+  report.failureStage = stage;
   report.error = 'Synthetic speech verification failed. Inspect fixture availability or provider connectivity without printing credentials or provider payloads.';
 }
 fs.writeFileSync(path.join(root, 'artifacts/voice-provider.json'), JSON.stringify(report, null, 2));

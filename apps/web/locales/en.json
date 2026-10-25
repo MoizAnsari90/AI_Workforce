@@ -1,4 +1,7 @@
 {
+  "Voice is locked to the free self-hosted engine. Paid providers and automatic upgrades are disabled.": "Voice is locked to the free self-hosted engine. Paid providers and automatic upgrades are disabled.",
+  "The free voice service is unavailable or busy. Please retry your recording or type your question.": "The free voice service is unavailable or busy. Please retry your recording or type your question.",
+  "The free voice service is unavailable. Please retry your recording or type your question.": "The free voice service is unavailable. Please retry your recording or type your question.",
   "Interface language": "Interface language",
   "Workspace": "Workspace",
   "Overview": "Overview",

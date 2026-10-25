@@ -31,7 +31,7 @@ describe('Niche provider boundaries', () => {
     for (const changed of [{ ...template, status: 'PAUSED' }, { ...template, category: 'MARKETING' }, { ...template, components: [{ type: 'BODY', text: '{{1}} and {{2}}' }] }]) { fetch.mockResolvedValue(reply({ data: [changed] })); await expect(verifyReminderTemplate('tenant-a', config)).rejects.toThrow('approved UTILITY'); }
   });
   it('stores the Dograh connection per tenant and returns the public callback URL', async () => {
-    expect(await connectDograh('tenant-a', 'user-a', dograh)).toEqual({ connected: true, webhookUrl: 'https://api.example.test/api/webhooks/dograh' });
+    expect(await connectDograh('tenant-a', 'user-a', dograh)).toEqual({ connected: true, webhookUrl: 'https://api.example.test/api/webhooks/dograh/tenant-a' });
     expect(IntegrationService.storeCredential).toHaveBeenCalledWith({ tenantId: 'tenant-a', userId: 'user-a', provider: 'dograh', config: dograh });
     expect(await getDograhCredential('tenant-a')).toMatchObject(dograh);
   });

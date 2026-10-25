@@ -192,7 +192,7 @@ Register and log in through the deployed frontend; confirm secure cookies, dashb
 | Google Calendar | `$WEB_URL/api/calendar/google/callback`; client ID in nonsecret config and client secret in Secret Manager. |
 | Shopify | `$API_URL/api/v1/shopify/oauth/callback`; matching app allowlist/client credentials. |
 | WooCommerce | `$API_URL/api/v1/woocommerce/oauth/callback`; set `WOOCOMMERCE_CALLBACK_URL` in nonsecret config if enabled. |
-| Dograh | Use the authenticated callback URL shown under Reception automation; send Dograh call results to the `/api/webhooks/dograh` endpoint. |
+| Dograh | Use the authenticated tenant-scoped callback URL shown under Reception automation; send Dograh call results to that generated URL. |
 
 Complete controlled Gemini inference, WhatsApp send/receive/delivery, commerce reads, Calendar create/cancel, and any enabled voice flow before presenting the prototype. The automated deployment checks do not place calls, take payments, or send customer messages.
 

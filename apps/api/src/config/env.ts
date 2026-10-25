@@ -2,9 +2,16 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { z } from 'zod';
 
-// Load environment variables from .env
-dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
+// Runtime settings take precedence, followed by the API and root env files.
+// An empty Redis password placeholder must not hide the root Compose password.
+for (const file of ['.env', '../../.env']) {
+  const { parsed } = dotenv.config({ path: path.resolve(process.cwd(), file), processEnv: {}, quiet: true });
+  for (const [name, value] of Object.entries(parsed ?? {})) {
+    if (process.env[name] === undefined && !(name === 'REDIS_PASSWORD' && value === '')) {
+      process.env[name] = value;
+    }
+  }
+}
 
 const isProduction = process.env.NODE_ENV === 'production';
 const isTest = process.env.NODE_ENV === 'test';
@@ -35,11 +42,16 @@ const envSchema = z.object({
   META_PHONE_NUMBER_ID: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  VOICE_TRANSCRIBER_URL: z.preprocess(value => value === '' ? undefined : value, z.string().url().optional()),
+  VOICE_WORKER_AUTH_KEY: z.preprocess(value => value === '' ? undefined : value, z.string().regex(/^[a-f0-9]{64}$/i).optional()),
+  VOICE_TRANSCRIPTION_PROVIDER: z.preprocess(value => value === '' ? undefined : value, z.string().default('self-hosted-whisper')),
+  VOICE_PAYMENT_POLICY: z.preprocess(value => value === '' ? undefined : value, z.string().default('free-only')),
   DOGRAH_API_URL: z.preprocess(value => value === '' ? undefined : value, z.string().url().optional()),
   DOGRAH_API_KEY: z.preprocess(value => value === '' ? undefined : value, z.string().min(8).optional()),
   DOGRAH_AGENT_ID: z.preprocess(value => value === '' ? undefined : value, z.string().min(1).optional()),
   DOGRAH_WEBHOOK_SECRET: z.preprocess(value => value === '' ? undefined : value, z.string().min(32).optional()),
   MEDICAL_DATA_ENCRYPTION_KEY: z.string().regex(/^[0-9a-fA-F]{64}$/, 'must be 32 bytes encoded as 64 hexadecimal characters').optional(),
+  MEDICAL_DATA_ENCRYPTION_KEY_PREVIOUS: z.string().regex(/^[0-9a-fA-F]{64}$/, 'must be 32 bytes encoded as 64 hexadecimal characters').optional(),
   GEMINI_MODEL: z.string().min(1).default('gemini-3.8-flash'),
   GEMINI_EMBEDDING_MODEL: z.string().min(1).default('gemini-embedding-001'),
 });

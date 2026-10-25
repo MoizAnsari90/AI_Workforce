@@ -107,7 +107,7 @@ export function VoiceQuestionControl({ tenantId, disabled, onTranscript, onActiv
     try {
       const result = await workforceRequest<VoiceTranscript>(`/api/voice/transcribe?tenantId=${encodeURIComponent(tenantId)}`, {
         method: 'POST', headers: { 'Content-Type': 'audio/wav', 'x-voice-request-id': requestId.current }, body: audio.current,
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(28000)]),
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
       });
       if (generation.current !== current) return;
       onTranscript(result); cancel();

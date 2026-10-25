@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createShopifyInstallUrl, exchangeShopifyAuthorizationCode, refreshShopifyOfflineToken, verifyShopifyCallbackHmac } from '../src/services/shopifyAuth';
 
 const originalEnv = { ...process.env };
@@ -23,6 +24,26 @@ describe('Shopify merchant OAuth', () => {
     expect(url.searchParams.get('state')).toBe('random-state');
     expect(url.searchParams.has('expiring')).toBe(false);
     expect(() => createShopifyInstallUrl('https://demo-shop.myshopify.com/path', 'state')).toThrow();
+  });
+
+  it('requests only code-used Shopify scopes and disables automatic dev URL updates', () => {
+    delete process.env.SHOPIFY_SCOPES;
+    const configuration = readFileSync(new URL('../../../shopify.app.toml', import.meta.url), 'utf8');
+    const configuredScopes = configuration.match(/^scopes\s*=\s*"([^"]+)"$/m)?.[1].split(',') ?? [];
+    const defaultScopes = new URL(createShopifyInstallUrl('demo-shop.myshopify.com', 'state')).searchParams.get('scope')?.split(',') ?? [];
+    const commerceSource = readFileSync(new URL('../src/services/workforceCommerceService.ts', import.meta.url), 'utf8');
+    const stockSource = readFileSync(new URL('../src/tools/shopifyTool.ts', import.meta.url), 'utf8');
+    const clientSource = readFileSync(new URL('../src/services/shopifyClient.ts', import.meta.url), 'utf8');
+
+    expect(configuredScopes).toEqual(expect.arrayContaining(['read_products', 'read_inventory', 'read_orders', 'read_locations', 'write_orders']));
+    expect(configuredScopes).not.toContain('write_inventory');
+    expect(defaultScopes).toEqual(configuredScopes);
+    expect(commerceSource).toContain('products(first: 10');
+    expect(commerceSource).toContain("['read_orders']");
+    expect(stockSource).toContain('inventoryLevels(first: 100');
+    expect(stockSource).toContain("['read_locations', 'read_markets_home']");
+    expect(clientSource).toContain('if (write && !parsed.data.allowWrites)');
+    expect(configuration).toMatch(/^automatically_update_urls_on_dev\s*=\s*false$/m);
   });
 
   it('validates Shopify callback HMAC and rejects query tampering', () => {

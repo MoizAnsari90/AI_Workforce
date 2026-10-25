@@ -25,12 +25,12 @@ function baseUrl(raw: string) {
   return url.toString().replace(/\/$/, '');
 }
 
-export function dograhWebhookUrl() {
+export function dograhWebhookUrl(tenantId: string) {
   const origin = process.env.PUBLIC_API_URL;
   if (!origin) throw new ServiceUnavailableError('Set PUBLIC_API_URL to the public HTTPS API origin before configuring the Dograh webhook.');
   const url = new URL(origin);
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new ServiceUnavailableError('PUBLIC_API_URL must be a public HTTPS API origin.');
-  return `${url.origin}/api/webhooks/dograh`;
+  return `${url.origin}/api/webhooks/dograh/${encodeURIComponent(tenantId)}`;
 }
 
 export async function getDograhCredential(tenantId: string): Promise<DograhCredential> {
@@ -56,7 +56,7 @@ export async function connectDograh(tenantId: string, userId: string, raw: unkno
     webhookSecret: input.webhookSecret,
   };
   await IntegrationService.storeCredential({ tenantId, userId, provider: 'dograh', config });
-  return { connected: true, webhookUrl: dograhWebhookUrl() };
+  return { connected: true, webhookUrl: dograhWebhookUrl(tenantId) };
 }
 
 export async function sendDograhCall(tenantId: string, phone: string, reference: string) {

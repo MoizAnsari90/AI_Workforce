@@ -19,7 +19,7 @@ export function createShopifyInstallUrl(shop: string, state: string) {
   const { clientId, callbackUrl } = shopifyAppCredentials(true);
   const url = new URL(`https://${validShop.data}/admin/oauth/authorize`);
   url.searchParams.set('client_id', clientId);
-  url.searchParams.set('scope', process.env.SHOPIFY_SCOPES || 'read_products,read_inventory,write_inventory,read_orders,write_orders');
+  url.searchParams.set('scope', process.env.SHOPIFY_SCOPES || 'read_products,read_inventory,read_orders,read_locations,write_orders');
   url.searchParams.set('redirect_uri', callbackUrl);
   url.searchParams.set('state', state);
   return url.toString();

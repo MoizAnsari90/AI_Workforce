@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { backendUrl } from "@/lib/backend-url";
+import { isSameOriginRequest } from "@/lib/csrf";
 
 export async function GET(req: Request, props: { params: Promise<{ path: string[] }> }) {
   const params = await props.params;
@@ -36,6 +37,9 @@ async function handleProxy(req: Request, pathSegments: string[], method: string)
 
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
+    if (token && !["GET", "HEAD"].includes(method) && !isSameOriginRequest(req)) {
+      return NextResponse.json({ success: false }, { status: 403 });
+    }
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",

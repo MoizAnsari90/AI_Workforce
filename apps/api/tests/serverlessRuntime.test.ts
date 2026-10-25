@@ -3,6 +3,7 @@ import http from 'http';
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.resetModules(); });
 
+// Cold Windows imports can exceed 15s; this checks side effects, not latency.
 it('exports the Express handler on Vercel without opening a server or starting consumers', async () => {
   vi.stubEnv('VERCEL', '1');
   vi.stubEnv('BACKGROUND_WORKERS_ENABLED', 'false');
@@ -20,7 +21,7 @@ it('exports the Express handler on Vercel without opening a server or starting c
     expect(processor).not.toHaveBeenCalled();
     expect(scheduler).not.toHaveBeenCalled();
   } finally { await queueService.close(); }
-}, 15000);
+}, 30000);
 
 it('refuses continuous workers when explicitly enabled inside Vercel Functions', async () => {
   vi.stubEnv('VERCEL', '1');

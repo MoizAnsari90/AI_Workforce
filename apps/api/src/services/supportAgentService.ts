@@ -209,13 +209,49 @@ export const supportAgentService = {
     const { IntegrationService } = await import('./integrationService');
     const { accessToken, phoneNumberId } = await IntegrationService.getWhatsAppCredential(tenantId);
 
-    const { messageId: sentMessageId } = await whatsappService.sendMessage(
-      tenantId,
-      message.fromPhone,
-      result.responseText,
-      accessToken,
-      phoneNumberId,
-    );
+    let sentMessageId: string;
+    try {
+      ({ messageId: sentMessageId } = await whatsappService.sendMessage(
+        tenantId,
+        message.fromPhone,
+        result.responseText,
+        accessToken,
+        phoneNumberId,
+      ));
+    } catch (error) {
+      await conversationService.pauseAI(tenantId, conversation.id);
+      emitToTenant(tenantId, 'conversation:escalated', {
+        conversationId: conversation.id,
+        customerPhone: message.fromPhone,
+        customerName: conversation.customerName,
+        reason: 'outbound_provider_delivery_failed',
+      });
+      await recordAuditLog({
+        tenantId,
+        actorType: 'agent',
+        actorId: 'support-agent',
+        operation: 'ai_escalated',
+        entityType: 'conversation',
+        entityId: conversation.id,
+        newValue: {
+          escalationReason: 'outbound_provider_delivery_failed',
+          responseSource: result.source,
+          providerErrorType: error instanceof Error ? error.name : 'UnknownError',
+          proposedNextAction: 'human_review',
+        },
+      });
+      logger.warn('Support reply delivery failed; conversation paused for human review', {
+        tenantId,
+        conversationId: conversation.id,
+      });
+      return {
+        conversationId: conversation.id,
+        messageStored: true,
+        aiActive: false,
+        responseSource: 'human_inbox',
+        escalated: true,
+      };
+    }
 
     // 13. Store outbound message
     await conversationService.recordOutbound(

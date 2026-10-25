@@ -71,7 +71,7 @@ deploys = [i for i,s in enumerate(lines) if s.startswith('run deploy ')]
 assert migration < min(deploys)
 assert len(deploys) == 4
 assert any(line.startswith('services enable ') and 'generativelanguage.googleapis.com' in line for line in lines)
-assert any('--no-cpu-throttling' in s and '--max=1' in s for s in lines if s.startswith('run deploy ai-workforce-api '))
+assert any('--no-cpu-throttling' in s and '--max-instances=1' in s for s in lines if s.startswith('run deploy ai-workforce-api '))
 assert any('--set-secrets=DATABASE_URL=ai-workforce-direct-database-url:1' in s and '--network=default' in s for s in lines if s.startswith('run jobs deploy '))
 assert any('/etc/redis/ca.pem=ai-workforce-redis-ca:1' in s and 'DIRECT_DATABASE_URL=' not in s for s in lines if s.startswith('run deploy ai-workforce-api '))
 for line in (s for s in lines if s.startswith('run deploy ai-workforce-api ')):
@@ -97,4 +97,14 @@ fi
 import sys
 assert not any(line.startswith('run deploy ') for line in open(sys.argv[1]))
 PY
+# Dry-run must emit the supported scaling flags exactly once per service.
+bash deploy-gcp.sh --dry-run > "$TMP/output"
+grep -Fq -- '--min-instances=0' "$TMP/output"
+grep -Fq -- '--max-instances=3' "$TMP/output"
+grep -Fq -- '--min-instances=1' "$TMP/output"
+grep -Fq -- '--max-instances=1' "$TMP/output"
+[[ "$(grep -o -- '--min-instances=0' "$TMP/output" | wc -l)" -eq 2 ]]
+[[ "$(grep -o -- '--max-instances=3' "$TMP/output" | wc -l)" -eq 2 ]]
+[[ "$(grep -o -- '--min-instances=1' "$TMP/output" | wc -l)" -eq 2 ]]
+[[ "$(grep -o -- '--max-instances=1' "$TMP/output" | wc -l)" -eq 2 ]]
 echo 'PASS: initial URL discovery, secret references, repeat deploy, verification flow, and migration failure gate (local fixtures only).'

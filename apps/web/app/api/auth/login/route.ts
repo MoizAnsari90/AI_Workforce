@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { backendUrl } from "@/lib/backend-url";
+import { isSameOriginRequest } from "@/lib/csrf";
 
 export async function POST(req: Request) {
+  if (!isSameOriginRequest(req)) return NextResponse.json({ success: false }, { status: 403 });
   try {
     const body = await req.json();
     const response = await fetch(backendUrl('/api/v1/auth/login'), {

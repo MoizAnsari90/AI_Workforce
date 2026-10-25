@@ -21,10 +21,12 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always", "--maxmemory-policy", "noeviction"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set a unique production Redis password}
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "always", "--maxmemory-policy", "noeviction", "--requirepass", "${REDIS_PASSWORD}"]
     volumes: ["production_redis:/data"]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,7 +42,18 @@ services:
     build: { context: ., dockerfile: apps/api/Dockerfile }
     restart: unless-stopped
     env_file: ${PRODUCTION_ENV_FILE:-.env.production}
-    environment: { NODE_ENV: production, PORT: 3001, REDIS_HOST: redis, TRUST_PROXY_HOPS: 1 }
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      REDIS_URL: ${REDIS_URL:?Set REDIS_URL to the authenticated Redis endpoint}
+      TRUST_PROXY_HOPS: 1
+      BILLING_MODE: disabled
+      BILLING_ENFORCEMENT: "false"
+      VOICE_TRANSCRIPTION_PROVIDER: self-hosted-whisper
+      VOICE_PAYMENT_POLICY: free-only
+      VOICE_TRANSCRIBER_URL: http://voice-transcriber:8091
+      VOICE_WORKER_AUTH_KEY: ${VOICE_WORKER_AUTH_KEY:-}
+    networks: [default, voice_internal]
     depends_on:
       migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
@@ -50,6 +63,22 @@ services:
       timeout: 10s
       retries: 3
     logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
+  voice-transcriber:
+    build: ./services/voice-transcriber
+    image: ai-workforce-voice:free-only-1
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      VOICE_WORKER_AUTH_KEY: ${VOICE_WORKER_AUTH_KEY:-}
+      VOICE_PAYMENT_POLICY: free-only
+    networks: [voice_internal]
+    read_only: true
+    tmpfs: ["/tmp:size=32m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1536m
+    cpus: 2
+    pids_limit: 128
   web:
     build:
       context: .
@@ -76,6 +105,10 @@ services:
     command: ["bash", "/ops/backup.sh"]
     depends_on:
       postgres: { condition: service_healthy }
+networks:
+  voice_internal:
+    internal: true
+
 volumes:
   production_db:
   production_redis:

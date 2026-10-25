@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { backendUrl } from '@/lib/backend-url';
 
 export const runtime = 'nodejs';
+export const maxDuration = 120;
 const MAX_BYTES = 5 * 1024 * 1024;
 const fail = (message: string, status: number) => Response.json({ success: false, error: { message } }, { status, headers: { 'Cache-Control': 'no-store' } });
 
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
       }
     } finally { reader.releaseLock(); }
     const response = await fetch(backendUrl(`/api/v1/tenants/${tenantId}/workforce/transcribe`), {
-      method: 'POST', cache: 'no-store', redirect: 'error', signal: AbortSignal.any([req.signal, AbortSignal.timeout(24000)]),
+      method: 'POST', cache: 'no-store', redirect: 'error', signal: AbortSignal.any([req.signal, AbortSignal.timeout(115000)]),
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'audio/wav', 'x-voice-request-id': requestId },
       body: Buffer.concat(chunks),
     });

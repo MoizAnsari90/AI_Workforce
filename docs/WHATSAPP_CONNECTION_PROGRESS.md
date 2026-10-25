@@ -7,8 +7,8 @@ certification or a public-launch sign-off.
 ## Dograh voice cutover — 21 October 2026
 
 The earlier voice setup notes below are a historical snapshot. AI Workforce now
-uses the Dograh connection screen and authenticated `/api/webhooks/dograh`
-endpoint. See [Dograh integration](DOGRAH_INTEGRATION.md) for current setup.
+uses the Dograh connection screen and authenticated tenant-scoped
+`/api/webhooks/dograh/:tenantId` endpoint. See [Dograh integration](DOGRAH_INTEGRATION.md) for current setup.
 Migration `20261021120000_replace_vapi_with_dograh` removes stored credentials
 for the retired provider and labels old call records as legacy. Automated tests
 do not constitute a live Dograh call; a controlled external call remains an

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { ApiResponse } from '@ai-employee/shared';
-import { login, registerTenantAndAdmin, resolveUserContext } from '../services/authService';
+import { login, registerTenantAndAdmin, resolveUserContext, revokeUserSessions } from '../services/authService';
 
 const registerSchema = z.object({
   tenantName: z.string().min(2, 'Tenant name must be at least 2 characters'),
@@ -65,6 +65,15 @@ export async function handleGetMe(req: Request, res: Response, next: NextFunctio
     };
 
     res.status(200).json(response);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function handleLogout(req: Request, res: Response, next: NextFunction) {
+  try {
+    await revokeUserSessions(req.user!.userId);
+    res.status(204).end();
   } catch (error) {
     next(error);
   }

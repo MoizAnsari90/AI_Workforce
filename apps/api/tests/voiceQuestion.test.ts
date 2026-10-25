@@ -1,16 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import crypto from 'node:crypto';
 const mocks = vi.hoisted(() => ({ generate: vi.fn(), logs: new Map<string, any>(), user: 0 }));
-vi.mock('@google/genai', () => ({ GoogleGenAI: class { models = { generateContent: mocks.generate }; } }));
-vi.mock('../src/config/env', () => ({ env: { GEMINI_API_KEY: 'test-only', GEMINI_MODEL: 'test-audio-model' } }));
+vi.mock('../src/config/env', () => ({ env: { JWT_SECRET: 'test-only-voice-worker-signing-key', VOICE_TRANSCRIBER_URL: 'http://127.0.0.1:8091', VOICE_TRANSCRIPTION_PROVIDER: 'self-hosted-whisper', VOICE_PAYMENT_POLICY: 'free-only' } }));
 vi.mock('../src/services/idempotencyService', () => ({ IdempotencyService: {
   generateIdempotencyKey: vi.fn(async (input: any) => { const key = JSON.stringify(input); return { key, idempotencyLog: mocks.logs.get(key) }; }),
   createPendingLog: vi.fn(async (key: string) => { mocks.logs.set(key, { status: 'pending' }); }),
   checkIdempotency: vi.fn(async (key: string) => mocks.logs.get(key)),
   logSuccess: vi.fn(async (key: string, _resource: string, responseSnapshot: any) => { mocks.logs.set(key, { status: 'succeeded', responseSnapshot }); }),
-  logFailure: vi.fn(async (key: string) => { mocks.logs.set(key, { status: 'failed' }); }),
+  logFailure: vi.fn(async (key: string, errorMessage: string) => { mocks.logs.set(key, { status: 'failed', errorMessage }); }),
+  retryVoiceTranscription: vi.fn(async (key: string) => { if (!['voice:retryable', 'Voice transcription failed'].includes(mocks.logs.get(key)?.errorMessage)) return false; mocks.logs.set(key, { status: 'pending' }); return true; }),
 } }));
 vi.mock('../src/middleware/authMiddleware', () => ({ authenticate: (req: any, res: any, next: any) => {
   if (!req.headers.authorization) return res.status(401).json({ error: 'Unauthorized' });
@@ -30,6 +30,13 @@ export function wav(seconds = 1, silent = false) {
   return b;
 }
 beforeEach(() => { mocks.user++; mocks.logs.clear(); vi.clearAllMocks(); mocks.generate.mockResolvedValue({ text: JSON.stringify({ transcript: 'کتنی منظوریاں باقی ہیں؟', question: 'How many approvals are pending?' }) }); });
+beforeEach(() => { vi.stubGlobal('fetch', vi.fn(async (_url, options) => {
+  const result = await mocks.generate(options);
+  if (result instanceof Response) return result;
+  return Response.json({ ...JSON.parse(result.text), engine: 'faster-whisper', engineVersion: '1.2.1', policy: 'free-only', billingRequired: false,
+    protocolVersion: 1, modelRevision: 'ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66' });
+})); });
+afterEach(() => vi.unstubAllGlobals());
 const upload = (body = wav(), requestId = crypto.randomUUID()) => request(app).post('/tenants/tenant-a/workforce/transcribe').set('Authorization', 'Bearer test').set('Content-Type', 'audio/wav').set('x-voice-request-id', requestId).send(body);
 
 describe('voice upload trust boundary', () => {
@@ -62,11 +69,12 @@ describe('voice upload trust boundary', () => {
     expect(result.body.data).toEqual({ transcript: 'کتنی منظوریاں باقی ہیں؟', question: 'How many approvals are pending?', durationSeconds: 1 });
     expect(result.headers['cache-control']).toBe('no-store');
     const input = mocks.generate.mock.calls[0][0];
-    expect(input.contents[0].parts[0].inlineData.mimeType).toBe('audio/wav');
-    expect(input.config.systemInstruction).toContain('Preserve product names, SKU codes');
-    expect(input.config.httpOptions.timeout).toBe(20000);
+    expect(input.headers['Content-Type']).toBe('audio/wav');
+    expect(input.headers['X-Voice-Payment-Policy']).toBe('free-only');
+    expect(Buffer.from(input.body)).toEqual(wav());
+    expect(input.redirect).toBe('error');
   });
-  it('replays a successful upload without calling Gemini twice and does not store audio', async () => {
+  it('replays a successful upload without calling the local worker twice and does not store audio', async () => {
     const id = crypto.randomUUID(); const first = await upload(wav(), id); const second = await upload(wav(), id);
     expect(first.status).toBe(200); expect(second.body.data).toEqual(first.body.data); expect(mocks.generate).toHaveBeenCalledOnce();
     expect(JSON.stringify([...mocks.logs.values()])).not.toContain('base64');
@@ -81,11 +89,40 @@ describe('voice upload trust boundary', () => {
     complete({ text: JSON.stringify({ transcript: 'Pending approvals?', question: 'Pending approvals?' }) }); await pending;
     expect(mocks.generate).toHaveBeenCalledOnce();
   });
-  it('returns a safe provider failure and does not re-run a failed recording automatically', async () => {
+  it('returns a safe connection failure and allows an explicit retry of the same recording', async () => {
     mocks.generate.mockRejectedValueOnce(new Error('secret-key audio base64 private details'));
     const id = crypto.randomUUID(); const result = await upload(wav(), id);
     expect(result.status).toBe(503); expect(result.text).not.toContain('secret-key');
-    expect((await upload(wav(), id)).status).toBe(409); expect(mocks.generate).toHaveBeenCalledOnce();
+    expect((await upload(wav(), id)).status).toBe(200); expect(mocks.generate).toHaveBeenCalledTimes(2);
+  });
+  it('recovers from a busy worker only when the user explicitly retries', async () => {
+    mocks.generate.mockResolvedValueOnce(Response.json({}, { status: 503 }));
+    const id = crypto.randomUUID();
+    expect((await upload(wav(), id)).status).toBe(503);
+    expect(mocks.generate).toHaveBeenCalledOnce();
+    const result = await upload(wav(), id);
+    expect(result.status).toBe(200); expect(result.body.data.question).toBe('How many approvals are pending?');
+    expect(mocks.generate).toHaveBeenCalledTimes(2);
+  });
+  it('makes no automatic calls while the worker remains unavailable', async () => {
+    mocks.generate.mockRejectedValue(Object.assign(new Error('Private provider details'), { status: 503 }));
+    const result = await upload();
+    expect(result.status).toBe(503);
+    expect(result.text).not.toContain('Private provider details');
+    expect(mocks.generate).toHaveBeenCalledOnce();
+  });
+  it('keeps payment-required failures blocked on replay without another worker call', async () => {
+    mocks.generate.mockResolvedValueOnce(Response.json({}, { status: 402 }));
+    const id = crypto.randomUUID();
+    const first = await upload(wav(), id), replay = await upload(wav(), id);
+    expect(first.status).toBe(402); expect(replay.status).toBe(402);
+    expect(replay.body.error.code).toBe('VOICE_PAID_UPGRADE_BLOCKED');
+    expect(mocks.generate).toHaveBeenCalledOnce();
+  });
+  it.each([400, 401, 403])('does not automatically retry a rejected worker request (%s)', async status => {
+    mocks.generate.mockResolvedValueOnce(Response.json({ error: 'Private provider details' }, { status }));
+    expect((await upload()).status).toBe(503);
+    expect(mocks.generate).toHaveBeenCalledOnce();
   });
   it.each(['{}', '{"transcript":"","question":""}', JSON.stringify({ transcript: 'x'.repeat(2001), question: 'x' })])('rejects unusable model output', async text => {
     mocks.generate.mockResolvedValueOnce({ text }); await expect(recognizeVoice(wav())).rejects.toMatchObject({ statusCode: 422 });

@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Run with Bash (also from zsh: bash deploy-gcp.sh). No secret payloads are read.
+if (( BASH_VERSINFO[0] < 3 || ( BASH_VERSINFO[0] == 3 && BASH_VERSINFO[1] < 2 ) )); then
+  echo 'Bash 3.2 or newer is required.' >&2
+  exit 1
+fi
 set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
@@ -16,6 +20,7 @@ done
 if [[ ! -f "$CONFIG_FILE" && "$DRY_RUN" == true ]]; then CONFIG_FILE=deploy/gcp/config.example.sh; fi
 [[ -f "$CONFIG_FILE" ]] || { echo 'Copy deploy/gcp/config.example.sh to config.local.sh first.' >&2; exit 1; }
 # This is an operator-owned shell configuration file, not downloaded input.
+# shellcheck source=deploy/gcp/config.example.sh
 source "$CONFIG_FILE"
 : "${GCP_PROJECT_ID:?Set GCP_PROJECT_ID}" "${GCP_REGION:?Set GCP_REGION}"
 : "${GEMINI_MODEL:?Select an accessible Gemini model}" "${GEMINI_EMBEDDING_MODEL:?Select an embedding model}"
@@ -84,7 +89,8 @@ SQL_FLAGS=()
 run gcloud config set project "$GCP_PROJECT_ID"
 if [[ "$DRY_RUN" == false ]]; then
   billing="$(gcloud billing projects describe "$GCP_PROJECT_ID" --format='value(billingEnabled)')"
-  if [[ "${billing,,}" != true ]]; then echo 'Link an active billing account to this project before deploying.' >&2; exit 1; fi
+  billing_lower="$(printf '%s' "$billing" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$billing_lower" != true ]]; then echo 'Link an active billing account to this project before deploying.' >&2; exit 1; fi
 fi
 APIS=(run.googleapis.com artifactregistry.googleapis.com cloudbuild.googleapis.com secretmanager.googleapis.com iam.googleapis.com storage.googleapis.com logging.googleapis.com generativelanguage.googleapis.com)
 [[ -n "${VPC_NETWORK:-}${VPC_CONNECTOR:-}" ]] && APIS+=(compute.googleapis.com)
@@ -190,8 +196,8 @@ service_url() {
   if [[ "$DRY_RUN" == true ]]; then echo "https://$1-dry-run.run.app";
   else gcloud run services describe "$1" --project="$GCP_PROJECT_ID" --region="$GCP_REGION" --format='value(status.url)'; fi
 }
-WEB_FLAGS=(--project="$GCP_PROJECT_ID" --region="$GCP_REGION" --image="$WEB_IMAGE" --service-account="$WEB_SA" --port=8080 --cpu=1 --memory=512Mi --min=0 --max=3 --concurrency=40 --timeout=60s --env-vars-file="$TMP_DIR/web.json" --quiet)
-API_FLAGS=(--project="$GCP_PROJECT_ID" --region="$GCP_REGION" --image="$API_IMAGE" --service-account="$API_SA" --port=8080 --cpu=1 --memory=1Gi --no-cpu-throttling --min=1 --max=1 --max-instances=1 --concurrency=40 --timeout=3600s --session-affinity --env-vars-file="$TMP_DIR/api.json" --set-secrets="$API_SECRET_LIST" --startup-probe=httpGet.path=/health,httpGet.port=8080,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 --liveness-probe=httpGet.path=/livez,httpGet.port=8080,periodSeconds=30,timeoutSeconds=2,failureThreshold=3 --readiness-probe=httpGet.path=/health,httpGet.port=8080,periodSeconds=10,timeoutSeconds=5,failureThreshold=3,successThreshold=1 "${NETWORK_FLAGS[@]}" "${SQL_FLAGS[@]}" --quiet)
+WEB_FLAGS=(--project="$GCP_PROJECT_ID" --region="$GCP_REGION" --image="$WEB_IMAGE" --service-account="$WEB_SA" --port=8080 --cpu=1 --memory=512Mi --min-instances=0 --max-instances=3 --concurrency=40 --timeout=60s --env-vars-file="$TMP_DIR/web.json" --quiet)
+API_FLAGS=(--project="$GCP_PROJECT_ID" --region="$GCP_REGION" --image="$API_IMAGE" --service-account="$API_SA" --port=8080 --cpu=1 --memory=1Gi --no-cpu-throttling --min-instances=1 --max-instances=1 --concurrency=40 --timeout=3600s --session-affinity --env-vars-file="$TMP_DIR/api.json" --set-secrets="$API_SECRET_LIST" --startup-probe='httpGet.path=/health,httpGet.port=8080,periodSeconds=10,timeoutSeconds=5,failureThreshold=24' --liveness-probe='httpGet.path=/livez,httpGet.port=8080,periodSeconds=30,timeoutSeconds=2,failureThreshold=3' --readiness-probe='httpGet.path=/health,httpGet.port=8080,periodSeconds=10,timeoutSeconds=5,failureThreshold=3,successThreshold=1' "${NETWORK_FLAGS[@]}" "${SQL_FLAGS[@]}" --quiet)
 WEB_URL=
 API_URL=
 deploy_service() {

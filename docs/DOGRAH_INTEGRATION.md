@@ -12,6 +12,10 @@ AI Workforce connects each business workspace to a Dograh voice agent. Dograh AP
 
 Dograh's documented outbound API Trigger is `POST {DOGRAH_API_URL}/api/v1/public/agent/workflow/{agent-uuid}` with an `X-API-Key` header and a body containing `phone_number` plus optional `initial_context`. The response's `workflow_run_id` is saved as the voice-session ID. The Dograh Webhook node is configurable rather than a fixed provider event format, so send this application's documented JSON fields. Repeated call-result deliveries safely upsert the same session ID.
 
+Use the stable **Agent UUID** copied from the workflow editor menu or agent Settings for `agentId`. This application uses the workflow-level `/public/agent/workflow/{agent-uuid}` route; the API Trigger node UUID used by `/public/agent/{trigger-uuid}` is a different identifier. See [Dograh's Agent UUID reference](https://docs.dograh.com/configurations/agent-uuid). Set the API URL to the API origin for your hosted/self-hosted instance. Publish the workflow and configure telephony before placing a call.
+
+Dograh may send `null` for an unavailable `recording_url` or `transcript_url`. The receiver accepts these nulls and retains existing links if a duplicate delivery omits them or sends null. Configure webhook retries in Dograh if required: its [webhook reference](https://docs.dograh.com/developer/webhooks) says failed deliveries do not retry by default. Authentication, tenant checks and stable tool-call idempotency keys remain required.
+
 ## Platform environment variables
 
 `DOGRAH_API_URL`, `DOGRAH_API_KEY`, `DOGRAH_AGENT_ID`, and `DOGRAH_WEBHOOK_SECRET` may be configured as private server-side defaults. Workspace credentials saved in the integration screen take precedence and are stored encrypted. `PUBLIC_API_URL` must be the public HTTPS API origin to generate the callback URL. Never expose these values through `NEXT_PUBLIC_*` variables.

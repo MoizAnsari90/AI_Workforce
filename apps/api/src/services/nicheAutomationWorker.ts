@@ -4,7 +4,7 @@ import { hasActiveChannelAgent } from './agentActivationService';
 import { prisma } from '../lib/prisma';
 import { logger } from '../utils/logger';
 import { type ParsedWhatsAppMessage } from './whatsappService';
-import { customerHash, enqueueNicheDispatch, getAutomationConfig, normalizePhone, openAutomation, sealAutomation } from './nicheAutomationStore';
+import { customerHash, enqueueNicheDispatch, getAutomationConfig, normalizePhone, openAutomation, openAutomationData, sealAutomation, sealAutomationData } from './nicheAutomationStore';
 import { processNicheTurn } from './nicheConversationService';
 import { decryptAppointmentContact } from './nicheWorkflowService';
 import { DispatchError, sendNicheWhatsApp, verifyReminderTemplate, whatsappCredential } from './nicheProviders';
@@ -18,7 +18,7 @@ export async function acceptNicheInbound(tenantId: string, message: ParsedWhatsA
   const timestamp = Date.parse(message.timestamp);
   if (!Number.isFinite(timestamp) || timestamp > Date.now() + 300_000) throw new Error('Invalid message timestamp');
   const payload = { text: message.text, phone, messageId: message.metaMessageId, receivedAt: new Date(timestamp).toISOString(), channel: 'whatsapp' };
-  await prisma.nicheDispatch.upsert({ where: { tenantId_key: { tenantId, key: `inbound:${message.metaMessageId}` } }, create: { tenantId, key: `inbound:${message.metaMessageId}`, type: 'inbound', scope: customerHash(phone), encryptedPayload: sealAutomation(payload, tenantId) }, update: {} });
+  await prisma.nicheDispatch.upsert({ where: { tenantId_key: { tenantId, key: `inbound:${message.metaMessageId}` } }, create: { tenantId, key: `inbound:${message.metaMessageId}`, type: 'inbound', scope: customerHash(phone), encryptedPayload: sealAutomationData(payload, tenantId, config.kind) }, update: {} });
   return true;
 }
 export async function recordNicheDelivery(tenantId: string, providerId: string, status: string) {
@@ -71,16 +71,16 @@ export async function runNicheDispatch(id: string) {
     }
     else if (!config) finalStatus = 'skipped';
     else if (candidate.type === 'inbound') {
-      const turn = openAutomation<Parameters<typeof processNicheTurn>[1]>(candidate.encryptedPayload, candidate.tenantId);
+      const turn = openAutomationData<Parameters<typeof processNicheTurn>[1]>(candidate.encryptedPayload, candidate.tenantId);
       // Old inbound events must never open a new 24-hour customer-service window.
       if (Date.parse(turn.receivedAt) < Date.now() - 23 * 3600_000) finalStatus = 'skipped'; else await processNicheTurn(candidate.tenantId, turn);
     } else if (candidate.type === 'whatsapp_reply') {
-      const payload = replyPayload.parse(openAutomation(candidate.encryptedPayload, candidate.tenantId));
+      const payload = replyPayload.parse(openAutomationData(candidate.encryptedPayload, candidate.tenantId));
       const session = await prisma.nicheSession.findUnique({ where: { tenantId_channel_customerHash: { tenantId: candidate.tenantId, channel: 'whatsapp', customerHash: customerHash(payload.phone) } } });
       if ((!payload.humanReply && !payload.controlReply && (!await hasSubscription(candidate.tenantId) || !await hasActiveChannelAgent(candidate.tenantId, config.kind))) || (!config.whatsappEnabled && !payload.humanReply) || (session?.paused && !payload.controlReply && !payload.humanReply) || (session?.optedOut && !payload.controlReply) || Date.parse(payload.receivedAt) < Date.now() - 23 * 3600_000) finalStatus = 'skipped';
       else { providerId = await sendNicheWhatsApp(candidate.tenantId, payload.phone, { text: payload.text }); finalStatus = 'accepted'; }
     } else if (candidate.type === 'voice_call') {
-      const payload = z.object({ phone: z.string(), consentAt: z.string() }).parse(openAutomation(candidate.encryptedPayload, candidate.tenantId));
+      const payload = z.object({ phone: z.string(), consentAt: z.string() }).parse(openAutomationData(candidate.encryptedPayload, candidate.tenantId));
       const stopped = await prisma.nicheSession.findFirst({ where: { tenantId: candidate.tenantId, customerHash: customerHash(payload.phone), paused: true } });
       if (!config.voiceEnabled || stopped || !await hasSubscription(candidate.tenantId) || !await hasActiveChannelAgent(candidate.tenantId, config.kind) || Date.parse(payload.consentAt) < Date.now() - 10 * 60_000) finalStatus = 'skipped';
         else {
@@ -95,7 +95,7 @@ export async function runNicheDispatch(id: string) {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${candidate.tenantId}))`;
         const booking = await tx.scheduledAppointment.findFirst({ where: { id: appointmentId, tenantId: candidate.tenantId, status: 'confirmed', reminderConsent: true, startTime: { gt: new Date() } } });
         if (!config.remindersEnabled || !booking || !await hasSubscription(candidate.tenantId) || !await hasActiveChannelAgent(candidate.tenantId, config.kind)) return null;
-        const contact = decryptAppointmentContact(booking.encryptedContact);
+        const contact = decryptAppointmentContact(booking.encryptedContact, candidate.tenantId);
         if (await tx.nicheSession.findFirst({ where: { tenantId: candidate.tenantId, customerHash: customerHash(contact.phone), optedOut: true } })) return null;
         await verifyReminderTemplate(candidate.tenantId, config);
         const dateTime = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short', timeZone: booking.timezone }).format(booking.startTime) + ` (${booking.timezone})`;
@@ -106,7 +106,8 @@ export async function runNicheDispatch(id: string) {
   } catch (error) {
     if (candidate.type === 'inbound' && candidate.attempts < 2) { await prisma.nicheDispatch.update({ where: { id }, data: { status: 'pending', dueAt: new Date(Date.now() + 30_000) } }); return; }
     finalStatus = candidate.type === 'inbound' ? 'failed' : error instanceof DispatchError && !error.uncertain ? 'failed' : 'unknown';
-    logger.warn('Niche automation job requires review', { dispatchId: id, tenantId: candidate.tenantId, type: candidate.type, status: finalStatus });
+    const errorLocation = error instanceof Error ? error.stack?.split('\n').slice(1, 2)[0]?.trim().replace(/^at\s+/, '') : undefined;
+    logger.warn('Niche automation job requires review', { dispatchId: id, tenantId: candidate.tenantId, type: candidate.type, status: finalStatus, errorType: error instanceof Error ? error.name : 'UnknownError', ...(errorLocation ? { errorLocation } : {}) });
   }
   await prisma.nicheDispatch.update({ where: { id }, data: { status: finalStatus, providerId } });
   if (providerId) {

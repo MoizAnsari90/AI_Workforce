@@ -40,4 +40,14 @@ export class IdempotencyService {
       create: { ...parsed, idempotencyKey: key, status: 'failed', errorMessage, completedAt: new Date() },
     });
   }
+
+  static async retryVoiceTranscription(key: string) {
+    const parsed = details(key);
+    if (parsed.actionType !== 'voice_transcription') throw new Error('Only voice transcription can use this retry claim');
+    const result = await prisma.idempotencyLog.updateMany({
+      where: { tenantId: parsed.tenantId, idempotencyKey: key, status: 'failed', errorMessage: { in: ['voice:retryable', 'Voice transcription failed'] } },
+      data: { status: 'pending', errorMessage: null, completedAt: null },
+    });
+    return result.count === 1;
+  }
 }

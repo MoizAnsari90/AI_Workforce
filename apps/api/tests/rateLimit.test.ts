@@ -6,27 +6,27 @@ const app = createApp();
 
 describe('Rate Limiting', () => {
   it('should apply global rate limit to non-auth routes', async () => {
-    // Reduce limit in test or just make more requests
-    // Using a smaller limit for testing would be better, but we are testing real app
-    // Let's just make enough requests and expect 429
+    let rateLimited = false;
     for (let i = 0; i < 505; i++) {
       const res = await request(app).get('/api/v1/tenants');
       if (res.status === 429) {
-        expect(res.status).toBe(429);
-        return;
+        rateLimited = true;
+        break;
       }
     }
-    // If not hit, it's a test issue.
+    expect(rateLimited).toBe(true);
   }, 20000); // 20s timeout
 
   it('should apply stricter rate limit to auth routes', async () => {
+    let rateLimited = false;
     for (let i = 0; i < 25; i++) {
       const res = await request(app).post('/api/v1/auth/login');
       if (res.status === 429) {
-        expect(res.status).toBe(429);
-        return;
+        rateLimited = true;
+        break;
       }
     }
+    expect(rateLimited).toBe(true);
   });
 
   it('should NOT rate limit webhook route', async () => {

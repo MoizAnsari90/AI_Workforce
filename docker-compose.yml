@@ -1,13 +1,13 @@
-services:
+﻿services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: ai_workforce_postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5433:5432"
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: pakistanf6
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the root .env file}
       POSTGRES_DB: ai_workforce
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -22,14 +22,55 @@ services:
     container_name: ai_workforce_redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in the root .env file}
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}"]
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  voice-transcriber:
+    build: ./services/voice-transcriber
+    image: ai-workforce-voice:free-only-1
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      VOICE_WORKER_AUTH_KEY: ${VOICE_WORKER_AUTH_KEY:-}
+      VOICE_PAYMENT_POLICY: free-only
+    networks: [voice_internal]
+    read_only: true
+    tmpfs: ["/tmp:size=32m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1536m
+    cpus: 2
+    pids_limit: 128
+
+  voice-gateway:
+    image: ai-workforce-voice:free-only-1
+    pull_policy: never
+    command: ["python", "gateway.py"]
+    restart: unless-stopped
+    ports: ["127.0.0.1:8091:8091"]
+    networks: [default, voice_internal]
+    depends_on:
+      voice-transcriber: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp:size=8m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+
+networks:
+  voice_internal:
+    internal: true
 
 volumes:
   postgres_data:

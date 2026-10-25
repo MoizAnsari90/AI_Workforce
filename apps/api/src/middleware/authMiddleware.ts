@@ -14,7 +14,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     const decoded = verifyToken(token);
 
     // Resolve full user context including fresh permissions from DB
-    const userContext = await resolveUserContext(decoded.userId);
+    const userContext = await resolveUserContext(decoded.userId, decoded.tokenVersion ?? 0);
 
     req.user = userContext;
     req.tenantId = userContext.tenantId;

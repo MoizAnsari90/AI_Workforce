@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { backendUrl } from '@/lib/backend-url';
+import { isSameOriginRequest } from '@/lib/csrf';
 
 type Context = { params: Promise<{ path: string[] }> };
 
@@ -15,6 +16,9 @@ async function proxy(request: Request, context: Context) {
     }
     if (!headers.has('authorization')) {
       const token = (await cookies()).get('token')?.value;
+      if (token && !['GET', 'HEAD'].includes(request.method) && !isSameOriginRequest(request)) {
+        return Response.json({ success: false }, { status: 403 });
+      }
       if (token) headers.set('authorization', `Bearer ${token}`);
     }
     const response = await fetch(target, {

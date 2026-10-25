@@ -16,6 +16,11 @@ if (!/^(?:[1-9]|1[0-5])$/.test(process.env.REDIS_DB)) throw new Error('Tests req
 process.env.REDIS_PASSWORD = process.env.TEST_REDIS_PASSWORD || '';
 delete process.env.REDIS_URL;
 delete process.env.REDIS_TLS_CA_FILE;
+// Never inherit a live voice endpoint or its authentication key in integration tests.
+delete process.env.VOICE_TRANSCRIBER_URL;
+delete process.env.VOICE_WORKER_AUTH_KEY;
+process.env.VOICE_TRANSCRIPTION_PROVIDER = 'self-hosted-whisper';
+process.env.VOICE_PAYMENT_POLICY = 'free-only';
 process.env.CORS_ORIGINS = 'http://localhost:3000,https://localhost:3000';
 process.env.GEMINI_API_KEY = 'test_gemini_key';
 process.env.BILLING_MODE = 'disabled';

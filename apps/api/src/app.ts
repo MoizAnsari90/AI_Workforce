@@ -1,7 +1,9 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import { corsOrigin } from './config/cors';
 import rateLimit from 'express-rate-limit';
+import { createAuthRateLimiter } from './middleware/authRateLimiter';
 import { env } from './config/env';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/errorHandler';
@@ -41,19 +43,13 @@ const globalLimiter = rateLimit({
   skip: (req) => req.originalUrl.startsWith('/api/v1/webhook'),
 });
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many login attempts, please try again later.' },
-  skip: (req) => req.originalUrl.startsWith('/api/v1/webhook'),
-});
+const authLimiter = createAuthRateLimiter();
 
 export function createApp() {
   const app = express();
 
   // Basic middleware
+  app.use(helmet());
   app.use(cors({ origin: corsOrigin }));
   app.disable('x-powered-by');
   if (process.env.TRUST_PROXY_HOPS) app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS));
@@ -61,7 +57,7 @@ export function createApp() {
   app.use('/internal/automation', express.raw({ type: 'application/json', limit: '16kb' }), automationCallbackRouter);
   app.use(billingWebhookRouter);
   app.use('/api/v1/webhook', express.raw({ type: ['application/json', 'application/*+json'], limit: '1mb' }));
-  app.post('/api/webhooks/dograh', express.json({ limit: '1mb' }), receiveDograhWebhook);
+  app.post('/api/webhooks/dograh/:tenantId', express.json({ limit: '1mb' }), receiveDograhWebhook);
   app.use(express.json());
 
   // Process liveness is independent of database/Redis outages. /health reports readiness.

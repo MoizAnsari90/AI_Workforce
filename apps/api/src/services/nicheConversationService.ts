@@ -3,8 +3,9 @@ import { hasSubscription } from './subscriptionService';
 import { hasActiveChannelAgent } from './agentActivationService';
 import { prisma } from '../lib/prisma';
 import { AppError } from '../errors/AppError';
+import { isEmergencyMessage } from './emergencyClassifier';
 import { createAppointment, dateInput, decryptAppointmentContact, nicheAvailability, saveNicheLead, syncAppointment } from './nicheWorkflowService';
-import { customerHash, enqueueNicheDispatch, getAutomationConfig, normalizePhone, openAutomation, sealAutomation, stableUuid, type AutomationConfig } from './nicheAutomationStore';
+import { customerHash, enqueueNicheDispatch, getAutomationConfig, normalizePhone, openAutomationData, sealAutomationData, stableUuid, type AutomationConfig } from './nicheAutomationStore';
 
 type Choice = { id: string; label: string };
 export type NicheConversationState = { phone: string; name?: string; stage: string; choices?: Choice[]; resourceId?: string; serviceId?: string; propertyId?: string; leadId?: string; date?: string; start?: string; bookingKey?: string; bookingId?: string; lastReply?: string; lastCustomerMessage?: string; flowKind?: string; qualification?: { purpose: 'buy' | 'rent' | null; city: string | null; area: string | null; propertyType: 'house' | 'apartment' | 'commercial' | 'land' | null; budget: number | null; timeline: 'within_month' | 'within_quarter' | 'later' | 'unknown'; funding: 'ready' | 'needs_financing' | 'unknown' } };
@@ -22,13 +23,13 @@ async function advance(tenantId: string, config: AutomationConfig, state: NicheC
   const text = turn.text.trim(); const command = text.toLowerCase();
   if (command === 'call' && turn.channel === 'whatsapp') {
     if (!config.voiceEnabled) return 'Voice callbacks are not enabled. Reply HUMAN for staff assistance.';
-    await enqueueNicheDispatch(tenantId, `callback:${turn.messageId}`, 'voice_call', { phone: state.phone, consentAt: new Date().toISOString(), sessionHash: customerHash(state.phone) });
+    await enqueueNicheDispatch(tenantId, `callback:${turn.messageId}`, 'voice_call', { phone: state.phone, consentAt: new Date().toISOString(), sessionHash: customerHash(state.phone) }, undefined, config.kind);
     return 'You requested an AI voice callback to this WhatsApp number. The call is queued; reply STOP to stop further automation.';
   }
   if (command === 'remind' && state.bookingId) {
     if (!config.remindersEnabled) return 'WhatsApp reminders are not enabled for this business.';
     const booking = await prisma.scheduledAppointment.findFirst({ where: { id: state.bookingId, tenantId, status: 'confirmed' } });
-    if (!booking || decryptAppointmentContact(booking.encryptedContact).phone !== state.phone) return 'A confirmed appointment on this number is required for reminders.';
+    if (!booking || decryptAppointmentContact(booking.encryptedContact, tenantId).phone !== state.phone) return 'A confirmed appointment on this number is required for reminders.';
     await prisma.scheduledAppointment.update({ where: { id: booking.id }, data: { reminderConsent: true } });
     return 'You have opted in to a WhatsApp reminder for this appointment. Reply STOP at any time to opt out.';
   }
@@ -103,9 +104,9 @@ export async function processNicheTurn(tenantId: string, raw: Turn) {
   return prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`session:${tenantId}:${hash}`}))`;
     const receipt = await tx.nicheDispatch.findUnique({ where: { tenantId_key: { tenantId, key: receiptKey } } });
-    if (receipt) return openAutomation<{ reply: string; paused: boolean }>(receipt.encryptedPayload, tenantId);
+    if (receipt) return openAutomationData<{ reply: string; paused: boolean }>(receipt.encryptedPayload, tenantId);
     const existing = await tx.nicheSession.findUnique({ where: { tenantId_channel_customerHash: { tenantId, channel: turn.channel, customerHash: hash } } });
-    let state: NicheConversationState = existing ? openAutomation(existing.encryptedState, tenantId) : { phone: turn.phone, stage: 'welcome' };
+    let state: NicheConversationState = existing ? openAutomationData(existing.encryptedState, tenantId) : { phone: turn.phone, stage: 'welcome' };
     const previousKind = state.flowKind;
     if (previousKind && previousKind !== config.kind) state = { phone: turn.phone, stage: 'welcome' };
     let paused = existing?.paused || false; let optedOut = existing?.optedOut || false; let reason = existing?.handoffReason || null; let reply = '';
@@ -116,7 +117,7 @@ export async function processNicheTurn(tenantId: string, raw: Turn) {
     else if (['human', 'staff', 'insan'].includes(command)) { paused = true; reason = 'customer_requested_staff'; reply = 'Your request is in the staff inbox. Automated replies are paused. Please contact the business directly if urgent.'; }
     else if (!subscribed) { paused = true; reason = 'subscription_required'; }
     else if (!agentActive) { paused = true; reason = 'agent_inactive'; }
-    else if (config.kind === 'healthcare' && /\b(emergency|chest pain|cannot breathe|difficulty breathing|severe bleeding|unconscious|suicide|khudkushi)\b/i.test(turn.text)) { paused = true; reason = 'urgent_handoff'; reply = 'This assistant cannot assess emergencies. Contact local emergency services or seek urgent medical help now. Do not wait for this inbox.'; }
+    else if (config.kind === 'healthcare' && isEmergencyMessage(turn.text)) { paused = true; reason = 'urgent_handoff'; reply = 'This assistant cannot assess emergencies. Contact local emergency services or seek urgent medical help now. Do not wait for this inbox.'; }
     else if (config.kind === 'healthcare' && /\b(diagnos\w*|prescri\w*|symptom\w*|medicine|medication|treatment|medical advice|dawai|dawa|ilaaj)\b/i.test(turn.text)) { paused = true; reason = 'clinical_question'; reply = 'I can help with scheduling only. Please ask a qualified clinician about medical concerns. Your request has been flagged for staff.'; }
     else {
       if (command === 'start' && (!paused || optedOut)) { state = { phone: turn.phone, stage: 'welcome' }; paused = false; optedOut = false; reason = null; await tx.nicheSession.updateMany({ where: { tenantId, customerHash: hash, optedOut: true }, data: { optedOut: false } }); }
@@ -127,10 +128,10 @@ export async function processNicheTurn(tenantId: string, raw: Turn) {
     }
     state.lastCustomerMessage = turn.text;
     state.lastReply = reply || state.lastReply;
-    const encryptedState = sealAutomation({ ...state, flowKind: config.kind }, tenantId);
+    const encryptedState = sealAutomationData({ ...state, flowKind: config.kind }, tenantId, config.kind);
     const session = await tx.nicheSession.upsert({ where: { tenantId_channel_customerHash: { tenantId, channel: turn.channel, customerHash: hash } }, create: { tenantId, channel: turn.channel, customerHash: hash, encryptedState, paused, optedOut, handoffReason: reason }, update: { encryptedState, paused, optedOut, handoffReason: reason } });
-    await tx.nicheDispatch.create({ data: { tenantId, key: receiptKey, type: 'turn_receipt', status: 'succeeded', encryptedPayload: sealAutomation({ reply, paused }, tenantId) } });
-    if (reply && turn.channel === 'whatsapp') await tx.nicheDispatch.create({ data: { tenantId, key: `reply:${turn.messageId}`, type: 'whatsapp_reply', encryptedPayload: sealAutomation({ phone: turn.phone, text: reply, receivedAt: turn.receivedAt, controlReply: paused }, tenantId) } });
+    await tx.nicheDispatch.create({ data: { tenantId, key: receiptKey, type: 'turn_receipt', status: 'succeeded', encryptedPayload: sealAutomationData({ reply, paused }, tenantId, config.kind) } });
+    if (reply && turn.channel === 'whatsapp') await tx.nicheDispatch.create({ data: { tenantId, key: `reply:${turn.messageId}`, type: 'whatsapp_reply', encryptedPayload: sealAutomationData({ phone: turn.phone, text: reply, receivedAt: turn.receivedAt, controlReply: paused }, tenantId, config.kind) } });
     if (paused) await tx.auditLog.create({ data: { tenantId, actorType: 'system', actorId: 'receptionist', operation: 'receptionist_handoff', entityType: 'niche_session', entityId: session.id, newValue: JSON.stringify({ reason }) } });
     return { reply, paused };
   }, { timeout: 120_000, maxWait: 20_000 });

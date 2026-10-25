@@ -4,7 +4,7 @@ import path from 'node:path';
 import { root } from './predeployment-config.mjs';
 
 export async function checkVoiceBrowser({ protocol, navigate, screenshot, setVoiceHandler }) {
-  const report = { timestamp: new Date().toISOString(), passed: false, checks: {}, note: 'Synthetic Chromium microphone. Audio transcription responses are fixtures to make browser checks deterministic; the agent answer uses the real isolated API. Live Gemini audio recognition is verified separately in voice-provider.json. No physical microphone or customer audio is used.' };
+  const report = { timestamp: new Date().toISOString(), passed: false, checks: {}, note: 'Synthetic Chromium microphone. Audio transcription responses are fixtures to make browser checks deterministic; the agent answer uses the real isolated API. Live free Whisper recognition is verified separately in voice-provider.json. No physical microphone or customer audio is used.' };
   const uploads = []; let failNext = false; let delayNext = 0; let stage = 'initialization';
   const clickText = async text => protocol.evaluate(`Array.from(document.querySelectorAll('.wf-voice-panel button')).find(button=>button.textContent.trim()===${JSON.stringify(text)}).click()`);
   const start = async () => {

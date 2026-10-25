@@ -1,0 +1,4 @@
+# Intentionally pinned. Review the free-only policy before any explicit upgrade.
+faster-whisper==1.2.1
+# PyAV 19 removed metadata_errors, which faster-whisper 1.2.1 uses.
+av==16.1.0

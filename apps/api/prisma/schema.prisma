@@ -195,6 +195,7 @@ model Tenant {
   storeDailyReports StoreDailyReport[]
   nicheSessions NicheSession[]
   nicheDispatches NicheDispatch[]
+  dograhWebhookReceipts DograhWebhookReceipt[]
 
   @@map("tenants")
 }
@@ -367,6 +368,21 @@ model NicheDispatch {
   @@map("niche_dispatches")
 }
 
+model DograhWebhookReceipt {
+  tenantId String   @map("tenant_id")
+  eventId  String   @map("event_id")
+  bodyHash String   @map("body_hash")
+  status   String   @default("processing")
+  response Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, eventId])
+  @@map("dograh_webhook_receipts")
+}
+
 model GoogleCalendarConnection {
   tenantId String @id @map("tenant_id")
   connectionId String @default(uuid()) @map("connection_id")
@@ -396,6 +412,7 @@ model User {
   tenantId     String   @map("tenant_id")
   email        String   @unique
   passwordHash String   @map("password_hash")
+  tokenVersion Int      @default(0) @map("token_version")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 

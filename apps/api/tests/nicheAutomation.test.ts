@@ -11,16 +11,27 @@ import { prisma } from '../src/lib/prisma';
 import { nicheAutomationRouter } from '../src/routes/nicheAutomationRoutes';
 import { receiveDograhWebhook } from '../src/controllers/dograhWebhookController';
 import { processNicheTurn } from '../src/services/nicheConversationService';
-import { customerHash, defaultAutomation, enqueueNicheDispatch, openAutomation, sealAutomation } from '../src/services/nicheAutomationStore';
+import { customerHash, defaultAutomation, enqueueNicheDispatch, openAutomation, openAutomationData, sealAutomation } from '../src/services/nicheAutomationStore';
 import { acceptNicheInbound, recordNicheDelivery, runNicheDispatch, scheduleNicheReminders } from '../src/services/nicheAutomationWorker';
 import { DispatchError, sendNicheWhatsApp, verifyReminderTemplate, whatsappCredential } from '../src/services/nicheProviders';
 import { getDograhCredential, sendDograhCall, verifyDograhWebhookSecret } from '../src/services/dograh';
-const app = express(); app.use(express.json()); app.post('/api/webhooks/dograh', receiveDograhWebhook); app.use(nicheAutomationRouter);
+import { decryptAppointmentContact } from '../src/services/nicheWorkflowService';
+import { hasSubscription } from '../src/services/subscriptionService';
+import { hasActiveChannelAgent } from '../src/services/agentActivationService';
+import { logger } from '../src/utils/logger';
+const app = express(); app.use(express.json()); app.post('/api/webhooks/dograh/:tenantId', receiveDograhWebhook); app.use(nicheAutomationRouter);
 app.use((error: Error & { statusCode?: number; issues?: unknown }, _req: Request, res: Response, _next: NextFunction) => res.status(error.statusCode || (error.issues ? 400 : 500)).json({ error: error.message }));
 const phone = '+923001234567'; const config = { ...defaultAutomation, whatsappEnabled: true, voiceEnabled: true, remindersEnabled: true, templateName: 'appointment_reminder' };
 const profile = { name: 'Automation fixture', country: 'PK', industry: 'healthcare', currency: 'PKR', timezone: 'Asia/Karachi', languages: ['en'], primaryLanguage: 'en', slotMinutes: 30, bufferMinutes: 0, workingHours: Array.from({ length: 7 }, (_, day) => ({ day, enabled: true, start: '09:00', end: '17:00' })) };
 const base = () => `/tenants/${actor.tenantId}/reception-automation`;
 const turn = (text: string, messageId = randomUUID()) => processNicheTurn(actor.tenantId, { text, phone, messageId, channel: 'whatsapp', receivedAt: new Date().toISOString() });
+const dograhCallback = (tenantId: string, body: object, options: { secret?: string; eventId?: string } = {}) => {
+  const operation = request(app).post(`/api/webhooks/dograh/${tenantId}`)
+    .set('X-Dograh-Event-Id', options.eventId || randomUUID())
+    .set('X-Dograh-Timestamp', String(Math.floor(Date.now() / 1000)));
+  if (options.secret !== '') operation.set('Authorization', `Bearer ${options.secret || 'fixture-secret'}`);
+  return operation.send(body);
+};
 async function bookClinic() { for (const text of ['hello', 'AGREE', 'Fixture Patient', '1', '1', '2030-01-07', '1']) await turn(text); return turn('YES'); }
 beforeAll(async () => { actor.tenantId = (await prisma.tenant.create({ data: { name: `automation-fixture-${randomUUID()}` } })).id; });
 beforeEach(async () => {
@@ -64,6 +75,27 @@ describe('Reception automation', () => {
     await turn('REMIND'); expect((await prisma.scheduledAppointment.findFirstOrThrow({ where: { tenantId: actor.tenantId } })).reminderConsent).toBe(true);
     await turn('CANCEL'); expect((await prisma.scheduledAppointment.findFirstOrThrow({ where: { tenantId: actor.tenantId } })).status).toBe('confirmed'); await turn('CANCEL YES'); expect((await prisma.scheduledAppointment.findFirstOrThrow({ where: { tenantId: actor.tenantId } })).status).toBe('cancelled');
   }, 30000);
+  it('encrypts clinic state and queued message payloads with the medical-data key', async () => {
+    await turn('hello');
+    const session = await prisma.nicheSession.findFirstOrThrow({ where: { tenantId: actor.tenantId } });
+    const receipt = await prisma.nicheDispatch.findFirstOrThrow({ where: { tenantId: actor.tenantId, type: 'turn_receipt' } });
+    const reply = await prisma.nicheDispatch.findFirstOrThrow({ where: { tenantId: actor.tenantId, type: 'whatsapp_reply' } });
+    expect(session.encryptedState.startsWith('m1.')).toBe(true);
+    expect(receipt.encryptedPayload.startsWith('m1.')).toBe(true);
+    expect(reply.encryptedPayload.startsWith('m1.')).toBe(true);
+  });
+  it('does not log clinic contact details or inbound medical text', async () => {
+    const spies = [vi.spyOn(logger, 'debug'), vi.spyOn(logger, 'info'), vi.spyOn(logger, 'warn'), vi.spyOn(logger, 'error')];
+    try {
+      await turn('My chest hurts and my name is Fixture Patient');
+      const serializedLogs = JSON.stringify(spies.map(spy => spy.mock.calls));
+      expect(serializedLogs.includes('Fixture Patient')).toBe(false);
+      expect(serializedLogs.includes(phone)).toBe(false);
+      expect(serializedLogs.includes('My chest hurts')).toBe(false);
+    } finally {
+      spies.forEach(spy => spy.mockRestore());
+    }
+  });
   it('qualifies a real-estate lead and books a matching property viewing', async () => {
     await prisma.nicheAutomation.update({ where: { tenantId: actor.tenantId }, data: { config: { ...config, kind: 'real_estate' } } });
     await prisma.bookingResource.create({ data: { tenantId: actor.tenantId, kind: 'real_estate', name: 'Viewing agent', calendarId: 'property-calendar' } });
@@ -75,6 +107,43 @@ describe('Reception automation', () => {
     expect((await turn('What medicine should I take?')).paused).toBe(true); expect((await turn('hello')).reply).toBe('');
     expect((await turn('chest pain')).reply).toContain('emergency services');
   });
+  it.each([
+    'I may have overdosed on medication',
+    'I am having anaphylaxis',
+    'I want to hurt myself tonight',
+    'I have chest pain',
+    'I think I have a stroke',
+    'I have severe bleeding',
+    'I am having difficulty breathing',
+    'My friend is unconscious',
+    'dawa ki zyada miqdaar le li',
+    'shadeed allergy ho rahi hai aur gala band ho raha hai',
+    'main khud ko nuqsan pohanchana chahta hun',
+    'seene mein dard',
+    'falij ho sakta hai',
+    'bohat zyada khoon beh raha hai',
+    'saans nahi aa rahi',
+    'woh behosh hai',
+    'میں نے دوا کی زیادہ مقدار لے لی ہے',
+    'مجھے شدید الرجی ہے اور گلا بند ہو رہا ہے',
+    'میں خود کو نقصان پہنچانا چاہتا ہوں',
+    'سینے میں شدید درد ہے',
+    'فالج ہو سکتا ہے',
+    'بہت زیادہ خون بہہ رہا ہے',
+    'سانس لینے میں دشواری ہے',
+    'وہ بے ہوش ہے',
+  ])('stops active clinic automation and records emergency handoff: %s', async message => {
+    const result = await turn(message);
+    expect(result.paused).toBe(true);
+    expect(result.reply).toContain('emergency services');
+    expect(result.reply).not.toMatch(/diagnos|prescrib|treatment/i);
+
+    const session = await prisma.nicheSession.findFirstOrThrow({ where: { tenantId: actor.tenantId } });
+    expect(session).toMatchObject({ paused: true, handoffReason: 'urgent_handoff' });
+    expect(await prisma.auditLog.findFirst({ where: { tenantId: actor.tenantId, operation: 'receptionist_handoff', entityId: session.id } })).not.toBeNull();
+    expect((await turn('hello')).reply).toBe('');
+    expect(await prisma.scheduledAppointment.count({ where: { tenantId: actor.tenantId } })).toBe(0);
+  });
   it('honors STOP, prevents admin override, and requires customer START to resume', async () => {
     await turn('STOP'); const session = await prisma.nicheSession.findFirstOrThrow({ where: { tenantId: actor.tenantId } }); expect(session.optedOut).toBe(true);
     expect((await request(app).post(`${base()}/sessions/${session.id}/resume`).set('Authorization', 'Bearer fixture').send({})).status).toBe(409);
@@ -82,11 +151,46 @@ describe('Reception automation', () => {
   });
   it('suppresses cancelled and opted-out reminders and records provider acceptance separately from delivery', async () => {
     await bookClinic(); await turn('REMIND'); let booking = await prisma.scheduledAppointment.findFirstOrThrow({ where: { tenantId: actor.tenantId } });
+    expect(decryptAppointmentContact(booking.encryptedContact, actor.tenantId)).toEqual({ name: 'Fixture Patient', phone });
     await prisma.scheduledAppointment.update({ where: { id: booking.id }, data: { startTime: new Date(Date.now() + 3600_000), endTime: new Date(Date.now() + 5400_000) } });
+    booking = await prisma.scheduledAppointment.findUniqueOrThrow({ where: { id: booking.id } });
+    expect(booking.status).toBe('confirmed'); expect(booking.reminderConsent).toBe(true);
+    expect(await prisma.scheduledAppointment.findFirst({ where: { id: booking.id, tenantId: actor.tenantId, status: 'confirmed', reminderConsent: true, startTime: { gt: new Date() } } })).not.toBeNull();
+    expect((await prisma.nicheAutomation.findUniqueOrThrow({ where: { tenantId: actor.tenantId } })).config).toMatchObject({ remindersEnabled: true, kind: 'healthcare' });
+    expect(await hasSubscription(actor.tenantId)).toBe(true);
+    expect(await hasActiveChannelAgent(actor.tenantId, 'healthcare')).toBe(true);
     await scheduleNicheReminders(); await scheduleNicheReminders(); const job = await prisma.nicheDispatch.findFirstOrThrow({ where: { tenantId: actor.tenantId, type: 'reminder' } }); expect(await prisma.nicheDispatch.count({ where: { tenantId: actor.tenantId, type: 'reminder' } })).toBe(1);
-    await runNicheDispatch(job.id); expect((await prisma.nicheDispatch.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('accepted'); await recordNicheDelivery(actor.tenantId, 'wamid.accepted-fixture', 'delivered'); expect((await prisma.nicheDispatch.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('delivered');
+    expect(openAutomation<{ appointmentId: string }>(job.encryptedPayload, actor.tenantId)).toEqual({ appointmentId: booking.id });
+    expect(job.status).toBe('pending'); expect(job.dueAt.getTime()).toBeLessThanOrEqual(Date.now()); expect(booking.startTime.getTime()).toBeGreaterThan(Date.now());
+    expect(await prisma.nicheSession.findFirst({ where: { tenantId: actor.tenantId, customerHash: customerHash(phone), optedOut: true } })).toBeNull();
+    await runNicheDispatch(job.id);
+    expect((await prisma.nicheDispatch.findUniqueOrThrow({ where: { id: job.id } })).attempts).toBe(1);
+    expect(verifyReminderTemplate).toHaveBeenCalledOnce();
+    expect(sendNicheWhatsApp).toHaveBeenCalledOnce();
+    expect((await prisma.nicheDispatch.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('accepted');
+    await recordNicheDelivery(actor.tenantId, 'wamid.accepted-fixture', 'delivered');
+    expect((await prisma.nicheDispatch.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('delivered');
     await turn('STOP'); const second = await enqueueNicheDispatch(actor.tenantId, 'reminder-second', 'reminder', { appointmentId: booking.id }); await runNicheDispatch(second.id); expect((await prisma.nicheDispatch.findUniqueOrThrow({ where: { id: second.id } })).status).toBe('skipped');
     await prisma.scheduledAppointment.update({ where: { id: booking.id }, data: { status: 'cancelled' } }); const third = await enqueueNicheDispatch(actor.tenantId, 'reminder-third', 'reminder', { appointmentId: booking.id }); await runNicheDispatch(third.id); expect((await prisma.nicheDispatch.findUniqueOrThrow({ where: { id: third.id } })).status).toBe('skipped'); expect(sendNicheWhatsApp).toHaveBeenCalledTimes(1);
+  });
+  it('schedules consented reminders exactly 24 hours ahead without sensitive payload data', async () => {
+    const now = new Date('2027-02-01T10:00:00.000Z');
+    await bookClinic();
+    await turn('REMIND');
+    const booking = await prisma.scheduledAppointment.findFirstOrThrow({ where: { tenantId: actor.tenantId } });
+    const startTime = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    await prisma.scheduledAppointment.update({ where: { id: booking.id }, data: { startTime, endTime: new Date(startTime.getTime() + 30 * 60 * 1000) } });
+
+    await scheduleNicheReminders(now);
+    await scheduleNicheReminders(now);
+
+    const jobs = await prisma.nicheDispatch.findMany({ where: { tenantId: actor.tenantId, type: 'reminder' } });
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].dueAt).toEqual(now);
+    const payload = openAutomation<{ appointmentId: string }>(jobs[0].encryptedPayload, actor.tenantId);
+    expect(payload).toEqual({ appointmentId: booking.id });
+    expect(JSON.stringify(payload)).not.toContain(phone);
+    expect(JSON.stringify(payload)).not.toContain('Fixture Patient');
   });
   it('does not automatically resend an uncertain outbound message or use an expired reply window', async () => {
     const job = await enqueueNicheDispatch(actor.tenantId, 'reply-unknown', 'whatsapp_reply', { phone, text: 'Fixture reply', receivedAt: new Date().toISOString() }); vi.mocked(sendNicheWhatsApp).mockRejectedValueOnce(new DispatchError('Timeout', true)); await runNicheDispatch(job.id); await runNicheDispatch(job.id); expect(sendNicheWhatsApp).toHaveBeenCalledTimes(1); expect((await prisma.nicheDispatch.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('unknown');
@@ -94,26 +198,26 @@ describe('Reception automation', () => {
   });
   it('calls only after explicit CALL and cancels queued callbacks after STOP', async () => {
     await turn('hello'); expect(await prisma.nicheDispatch.count({ where: { tenantId: actor.tenantId, type: 'voice_call' } })).toBe(0); await turn('CALL', 'call-request'); await turn('CALL', 'call-request'); const job = await prisma.nicheDispatch.findFirstOrThrow({ where: { tenantId: actor.tenantId, type: 'voice_call' } }); await turn('STOP'); await runNicheDispatch(job.id); expect(sendDograhCall).not.toHaveBeenCalled();
-    await turn('START'); await turn('CALL', 'second-call'); const next = await prisma.nicheDispatch.findFirstOrThrow({ where: { tenantId: actor.tenantId, key: 'callback:second-call' } }); await runNicheDispatch(next.id); expect(sendDograhCall).toHaveBeenCalledTimes(1);
+    await turn('START'); await turn('CALL', 'second-call'); const next = await prisma.nicheDispatch.findFirstOrThrow({ where: { tenantId: actor.tenantId, key: 'callback:second-call' } }); expect(next.encryptedPayload.startsWith('m1.')).toBe(true); await runNicheDispatch(next.id); expect(sendDograhCall).toHaveBeenCalledTimes(1);
   });
   it('rejects forged Dograh callbacks and tenant-isolates call results', async () => {
     const body = { tenant_id: actor.tenantId, workflow_run_id: 918273, event: 'call.ended', status: 'completed', duration: 44, transcript: [{ speaker: 'user', text: 'I need an appointment' }] };
     vi.mocked(verifyDograhWebhookSecret).mockReturnValue(false);
-    expect((await request(app).post('/api/webhooks/dograh').set('Authorization', 'Bearer forged').send(body)).status).toBe(401);
+    expect((await dograhCallback(actor.tenantId, body, { secret: 'forged' })).status).toBe(401);
     vi.mocked(verifyDograhWebhookSecret).mockReturnValue(true);
-    const started = await request(app).post('/api/webhooks/dograh').set('Authorization', 'Bearer fixture-secret').send({ tenant_id: actor.tenantId, workflow_run_id: 918273, event: 'call.started' });
+    const started = await dograhCallback(actor.tenantId, { tenant_id: actor.tenantId, workflow_run_id: 918273, event: 'call.started' });
     expect(started.status).toBe(200); expect((await prisma.voiceSession.findUnique({ where: { callId: '918273' } }))?.status).toBe('active');
-    const first = await request(app).post('/api/webhooks/dograh').set('Authorization', 'Bearer fixture-secret').send(body);
+    const first = await dograhCallback(actor.tenantId, body);
     expect(first.status).toBe(200); expect(first.body).toMatchObject({ received: true, call_id: '918273' });
     expect(await prisma.voiceSession.findUnique({ where: { callId: '918273' } })).toMatchObject({ tenantId: actor.tenantId, provider: 'DOGRAH', status: 'completed' });
     const foreignTenant = (await prisma.tenant.create({ data: { name: `dograh-foreign-${randomUUID()}` } })).id;
-    const crossTenant = await request(app).post('/api/webhooks/dograh').set('Authorization', 'Bearer fixture-secret').send({ ...body, tenant_id: foreignTenant });
-    expect(crossTenant.status).toBe(409); await prisma.tenant.delete({ where: { id: foreignTenant } });
+    const crossTenant = await dograhCallback(actor.tenantId, { ...body, tenant_id: foreignTenant });
+    expect(crossTenant.status).toBe(403); await prisma.tenant.delete({ where: { id: foreignTenant } });
   });
   it('routes authenticated Dograh workforce_turn tools through existing reception and Calendar booking rules', async () => {
     const payload = { tenant_id: actor.tenantId, event: 'function_call', workflow_run_id: 2468, tool_call_id: 'tool-call-1', function: { name: 'workforce_turn', arguments: { text: 'hello', phone } } };
-    const response = await request(app).post('/api/webhooks/dograh').set('Authorization', 'Bearer fixture-secret').send(payload);
-    const replay = await request(app).post('/api/webhooks/dograh').set('Authorization', 'Bearer fixture-secret').send(payload);
+    const response = await dograhCallback(actor.tenantId, payload);
+    const replay = await dograhCallback(actor.tenantId, payload);
     expect(response.status).toBe(200); expect(response.body.result.reply).toContain('automated reception assistant'); expect(replay.body).toEqual(response.body);
   });
   it('binds encrypted session data to its tenant', () => { expect(() => openAutomation(sealAutomation({ phone }, actor.tenantId), 'foreign-tenant')).toThrow('could not be decrypted'); });
@@ -138,6 +242,7 @@ describe('Reception automation', () => {
     const first = await request(app).post(`${base()}/sessions/${sessionId}/reply`).set('Authorization', 'Bearer fixture').send(payload);
     const second = await request(app).post(`${base()}/sessions/${sessionId}/reply`).set('Authorization', 'Bearer fixture').send(payload);
     expect(first.status).toBe(202); expect(second.body.data.id).toBe(first.body.data.id);
+    expect((await prisma.nicheDispatch.findUniqueOrThrow({ where: { id: first.body.data.id } })).encryptedPayload.startsWith('m1.')).toBe(true);
     await runNicheDispatch(first.body.data.id); expect(sendNicheWhatsApp).toHaveBeenCalledWith(actor.tenantId, phone, { text: payload.text });
     await turn('STOP'); expect((await request(app).post(`${base()}/sessions/${sessionId}/reply`).set('Authorization', 'Bearer fixture').send({ ...payload, requestId: randomUUID() })).status).toBe(409);
   });
@@ -148,6 +253,6 @@ describe('Reception automation', () => {
     const second = await prisma.nicheDispatch.findUniqueOrThrow({ where: { tenantId_key: { tenantId: actor.tenantId, key: 'inbound:ordered-2' } } });
     await runNicheDispatch(second.id); expect((await prisma.nicheDispatch.findUniqueOrThrow({ where: { id: second.id } })).status).toBe('pending');
     await runNicheDispatch(first.id); await runNicheDispatch(second.id);
-    const session = await prisma.nicheSession.findFirstOrThrow({ where: { tenantId: actor.tenantId } }); expect(openAutomation<{ stage: string }>(session.encryptedState, actor.tenantId).stage).toBe('name');
+    const session = await prisma.nicheSession.findFirstOrThrow({ where: { tenantId: actor.tenantId } }); expect(openAutomationData<{ stage: string }>(session.encryptedState, actor.tenantId).stage).toBe('name');
   });
 });

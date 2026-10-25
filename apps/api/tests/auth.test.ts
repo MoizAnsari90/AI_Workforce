@@ -88,4 +88,25 @@ describe('Authentication & User Flow', () => {
     expect(res.body.success).toBe(false);
     expect(res.body.error.code).toBe('UNAUTHORIZED');
   });
+
+  it('POST /api/v1/auth/logout should invalidate the current bearer token', async () => {
+    const logout = await request(app)
+      .post('/api/v1/auth/logout')
+      .set('Authorization', `Bearer ${authToken}`);
+
+    expect(logout.status).toBe(204);
+
+    const currentUser = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${authToken}`);
+
+    expect(currentUser.status).toBe(401);
+
+    const login = await request(app).post('/api/v1/auth/login').send({ email: testEmail, password: testPassword });
+    expect(login.status).toBe(200);
+    const newSession = await request(app)
+      .get('/api/v1/auth/me')
+      .set('Authorization', `Bearer ${login.body.data.token}`);
+    expect(newSession.status).toBe(200);
+  });
 });

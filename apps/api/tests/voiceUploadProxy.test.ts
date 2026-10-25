@@ -46,3 +46,10 @@ it('hides internal proxy failures and preserves backend rejection status', async
   mocks.fetch.mockResolvedValueOnce(new Response('{"success":false}', { status: 403 }));
   expect((await POST(voiceRequest())).status).toBe(403);
 });
+it('shows the paid-upgrade block without forwarding a payment redirect', async () => {
+  mocks.fetch.mockResolvedValueOnce(Response.json({ success: false, error: { code: 'VOICE_PAID_UPGRADE_BLOCKED', message: 'Paid voice upgrades are disabled.' } }, { status: 402, headers: { Location: 'https://payment.example.test' } }));
+  const response = await POST(voiceRequest());
+  expect(response.status).toBe(402);
+  expect(response.headers.has('location')).toBe(false);
+  expect((await response.json()).error.code).toBe('VOICE_PAID_UPGRADE_BLOCKED');
+});
