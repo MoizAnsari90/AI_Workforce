@@ -9,6 +9,8 @@ test('GitHub CI gates branch pushes and pull requests with isolated Postgres and
   assert.match(source, /permissions:\s*\n\s+contents:\s*read/);
   assert.match(source, /postgres:\s*\n\s+image:\s*postgres:16/);
   assert.match(source, /redis:\s*\n\s+image:\s*redis:7-alpine/);
+  assert.match(source, /--health-cmd "redis-cli ping"/);
+  assert.match(source, /NODE_ENV:\s*test/);
   assert.match(source, /TEST_REDIS_DB:\s*15/);
   assert.match(source, /TEST_REDIS_PASSWORD:\s*''/);
   assert.match(source, /run:\s*npm test/);

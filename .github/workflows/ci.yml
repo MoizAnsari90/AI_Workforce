@@ -35,6 +35,11 @@ jobs:
         image: redis:7-alpine
         ports:
           - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     env:
       DATABASE_URL: postgresql://postgres:ci-only-postgres-password@127.0.0.1:5432/ai_workforce
@@ -42,6 +47,7 @@ jobs:
       TEST_REDIS_PORT: 6379
       TEST_REDIS_PASSWORD: ''
       TEST_REDIS_DB: 15
+      NODE_ENV: test
       CI: true
 
     steps:
