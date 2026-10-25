@@ -13,6 +13,7 @@ test('GitHub CI gates branch pushes and pull requests with isolated Postgres and
   assert.match(source, /NODE_ENV:\s*test/);
   assert.match(source, /TEST_REDIS_DB:\s*15/);
   assert.match(source, /TEST_REDIS_PASSWORD:\s*''/);
+  assert.match(source, /run:\s*npm run prisma:generate --workspace=@ai-employee\/api/);
   assert.match(source, /run:\s*npm test/);
   assert.match(source, /run:\s*npm run build/);
   assert.match(source, /run:\s*npm audit --omit=dev --audit-level=high/);

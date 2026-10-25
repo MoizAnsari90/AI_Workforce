@@ -63,6 +63,9 @@ jobs:
       - name: Install from lockfile
         run: npm ci --include=dev
 
+      - name: Generate Prisma client
+        run: npm run prisma:generate --workspace=@ai-employee/api
+
       - name: Run deployment configuration checks
         run: npm run deploy:test
 
