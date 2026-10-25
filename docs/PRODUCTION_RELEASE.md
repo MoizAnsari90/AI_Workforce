@@ -8,7 +8,7 @@ Run `npm test` from the repository root. The runner loads the API development en
 
 For another server, explicitly set `TEST_DATABASE_URL`. The database name must end in `_test` or `_test_<suffix>`, use the public schema, and differ from the configured application database. Direct Vitest invocations also require `TEST_DATABASE_URL`.
 
-Tests use Redis database 15 by default. Override with `TEST_REDIS_HOST`, `TEST_REDIS_PORT`, `TEST_REDIS_PASSWORD`, and `TEST_REDIS_DB` (1 through 15) when using a separate test Redis service. Reserve that database for tests; tests do not flush Redis. Integration fixture data stays in the isolated test database.
+Tests use Redis database 15 by default. Override with `TEST_REDIS_HOST`, `TEST_REDIS_PORT`, `TEST_REDIS_PASSWORD`, and `TEST_REDIS_DB` (1 through 15) when using a separate test Redis service. Reserve that database for tests. The suite deletes only its `ai-workforce:rate-limit:auth:*` counters between tests; it does not flush Redis or remove queue data. Integration fixture data stays in the isolated test database.
 
 After `npm run build`, run `npm run test:web:smoke` to exercise the built frontend's registration, login, session cookies and protected-page redirect over HTTP. This starts temporary local Next.js/API fixture servers on non-default ports and shuts them down afterward. It does not create real accounts or contact external providers.
 

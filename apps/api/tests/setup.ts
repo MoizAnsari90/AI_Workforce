@@ -1,5 +1,8 @@
 // Direct Vitest invocation must provide a dedicated DB; npm test provisions it.
 const { assertTestDatabaseUrl } = require('@ai-employee/shared/test-database.cjs');
+import Redis from 'ioredis';
+import { afterAll, afterEach, beforeAll } from 'vitest';
+
 assertTestDatabaseUrl(process.env.TEST_DATABASE_URL);
 process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -30,3 +33,42 @@ delete process.env.STRIPE_WEBHOOK_SECRET;
 process.env.LOG_LEVEL = 'error';
 process.env.INTEGRATION_ENCRYPTION_KEY = 'test-only-integration-key-not-for-production';
 process.env.MEDICAL_DATA_ENCRYPTION_KEY = 'ab'.repeat(32);
+
+// Auth limiter counters are shared by all suites using the dedicated test Redis
+// database. Clear only this application's test limiter namespace between tests;
+// queues and other integration fixtures remain intact.
+const authRateLimitTestPrefix = 'ai-workforce:rate-limit:auth:';
+const rateLimitTestRedis = new Redis({
+  host: process.env.REDIS_HOST,
+  port: Number(process.env.REDIS_PORT),
+  db: Number(process.env.REDIS_DB),
+  password: process.env.REDIS_PASSWORD || undefined,
+  lazyConnect: true,
+  maxRetriesPerRequest: 1,
+});
+
+async function clearAuthRateLimitTestKeys() {
+  let cursor = '0';
+  do {
+    const [nextCursor, keys] = await rateLimitTestRedis.scan(
+      cursor,
+      'MATCH',
+      `${authRateLimitTestPrefix}*`,
+      'COUNT',
+      '100',
+    );
+    cursor = nextCursor;
+    if (keys.length) await rateLimitTestRedis.del(...keys);
+  } while (cursor !== '0');
+}
+
+beforeAll(async () => {
+  await rateLimitTestRedis.connect();
+  await clearAuthRateLimitTestKeys();
+});
+
+afterEach(clearAuthRateLimitTestKeys);
+
+afterAll(async () => {
+  await rateLimitTestRedis.quit();
+});

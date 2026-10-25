@@ -3,11 +3,8 @@ import { test } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { dashboardOrigin, prepareFirebaseHosting } from './prepare-firebase-hosting.mjs';
 import { verifyHostedDeployment } from './verify-hosted-deployment.mjs';
-const require = createRequire(import.meta.url);
-const YAML = require('yaml');
 
 test('live verifier refuses a superficially healthy API with a failed database', async () => {
   const urls = { DEPLOY_API_URL: 'https://api.acme.test', DEPLOY_WEB_URL: 'https://web.acme.test', DEPLOY_FIREBASE_URL: 'https://entry.acme.test' };
@@ -33,19 +30,20 @@ test('live verifier rejects login redirects to a different origin', async () => 
 });
 
 test('Render free service installs workspaces and migrates before starting API', () => {
-  const { services } = YAML.parse(fs.readFileSync('render.yaml', 'utf8'));
-  const api = services[0];
-  assert.equal(api.plan, 'free');
-  assert.equal(api.runtime, 'node');
-  assert.match(api.buildCommand, /npm ci --include=dev/);
-  assert.match(api.buildCommand, /prisma:generate/);
-  assert.match(api.startCommand, /^node scripts\/run-migrations.cjs && cd apps\/api && node dist\/index.js$/);
-  assert.equal(api.preDeployCommand, undefined);
-  assert.equal(api.healthCheckPath, '/health');
+  const render = fs.readFileSync('render.yaml', 'utf8');
+  assert.match(render, /^\s+plan: free$/m);
+  assert.match(render, /^\s+runtime: node$/m);
+  const buildCommand = render.match(/^\s+buildCommand: (.+)$/m)?.[1] ?? '';
+  const startCommand = render.match(/^\s+startCommand: (.+)$/m)?.[1] ?? '';
+  assert.match(buildCommand, /npm ci --include=dev/);
+  assert.match(buildCommand, /prisma:generate/);
+  assert.match(startCommand, /^node scripts\/run-migrations\.cjs && cd apps\/api && node dist\/index\.js$/);
+  assert.doesNotMatch(render, /^\s+preDeployCommand:/m);
+  assert.match(render, /^\s+healthCheckPath: \/health$/m);
   for (const name of ['DATABASE_URL', 'REDIS_URL', 'GEMINI_API_KEY', 'JWT_SECRET', 'INTEGRATION_ENCRYPTION_KEY', 'MEDICAL_DATA_ENCRYPTION_KEY']) {
-    assert.deepEqual(api.envVars.find(item => item.key === name), { key: name, sync: false });
+    assert.match(render, new RegExp(`^\\s+- key: ${name}\\r?\\n\\s+sync: false$`, 'm'));
   }
-  assert.doesNotMatch(api.buildCommand + api.startCommand, /gcloud|billingEnabled|cloudrun/i);
+  assert.doesNotMatch(buildCommand + startCommand, /gcloud|billingEnabled|cloudrun/i);
 });
 test('Firebase publishes only a dedicated static directory, without server rewrites', () => {
   const { hosting } = JSON.parse(fs.readFileSync('firebase.json', 'utf8'));
